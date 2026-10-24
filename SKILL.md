@@ -6,7 +6,7 @@ description: 帮用户从 WorkBuddy 专家市场全库里找专家。当用户�
 description_zh: 按「要做的事」在 WorkBuddy 专家市场全库里找人，给出专家名、账号、使用量、版本和详情深链，能分辨同名专家。
 description_en: Find the right expert in the WorkBuddy marketplace by what the user wants to get done. Returns expert name, creator account, usage count, version and a detail link, and disambiguates experts sharing the same name.
 category: automation
-version: 1.5.1
+version: 1.5.2
 author: laoli
 license: MIT
 ---
@@ -152,7 +152,7 @@ JSON 输出里几个字段要先看（降级时没有这些，那时看 `degrade
 
 **不要因为 stale 就先问再答**——过期 7 天的索引在多数需求下答案一样，为时效性让用户等 25 秒不划算。
 
-首次安装时数据不存在，`find.mjs` 会**自动抓一次**，不用你干预，也不用问用户。
+首次安装时数据不存在，`find.mjs` 会**自动抓一次**（约 30 秒），不用问用户。抓取要读本机登录态，客户端会弹「读取文件命中询问规则」——**这是正常现象**，让用户选「允许读取」（或「本次会话内允许此目录」），并说一句：读的是他自己那台机器的登录态，不是外传。选「拒绝」就拿不到凭证，按下面的 `auth_expired` 处理。
 
 ## 边界
 
