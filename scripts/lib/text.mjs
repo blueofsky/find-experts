@@ -2,7 +2,7 @@
 // 不引分词词典：免依赖、抗新词，专有名词（小红书/拼豆/极狐）靠 bigram 天然覆盖。
 // 无意义组合靠 BM25 的 IDF 自然压掉。
 
-// 实测最优权重（见 references/tuning.md）
+// 实测最优权重（调参记录见仓库 references/tuning.md，不随包发布）
 // title = 市场卡片主标题（用户拿来搜专家的名字），最强信号
 // account = 创作者/账号名，含品牌词，单独降权，避免「仁者爱」「Flova」这类词把同账号一堆专家顶上来
 export const W = { title: 3.2, account: 1.8, tags: 2.0, desc: 1.0, qp: 1.2 };

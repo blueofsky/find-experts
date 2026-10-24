@@ -6,7 +6,7 @@ description: 帮用户从 WorkBuddy 专家市场全库里找专家。当用户�
 description_zh: 按「要做的事」在 WorkBuddy 专家市场全库里找人，给出专家名、账号、使用量、版本和详情深链，能分辨同名专家。
 description_en: Find the right expert in the WorkBuddy marketplace by what the user wants to get done. Returns expert name, creator account, usage count, version and a detail link, and disambiguates experts sharing the same name.
 category: automation
-version: 1.5.0
+version: 1.5.1
 author: laoli
 license: MIT
 ---
@@ -175,13 +175,3 @@ node ~/.workbuddy/skills/find-experts/scripts/selftest.mjs          # 回归：8
 **平时不用碰。** 只有三种情况会用到：`stale` 且用户同意刷新、`degraded: true` 要恢复、用户明确让你动索引。每天 04:30 有定时任务在跑。
 
 `data/` 是纯派生物，**整个删掉也没事**，下次 `find.mjs` 发现索引不在会自动重建（20~30 秒，无数据损失）。
-
-## 补充材料
-
-| 文件 | 什么时候读 |
-|---|---|
-| `@references/troubleshooting.md` | 非 0 退出码、凭证失效、数据长期不更新、降级要恢复 |
-| `@references/internals.md` | 维护者：代码证据、深链机制、`data/` 结构、面板调研 |
-| `@references/tuning.md` | 要改权重 / 分词 / 字段映射时，先看已经试过什么 |
-
-**正常情况下一份都不用打开。**
