@@ -11,10 +11,21 @@
 
 | 内容 | 归谁 | 说明 |
 |---|---|---|
-| `SKILL.md` `LICENSE` `references/` `scripts/` | 开发 → 部署到生产 | deploy 的同步范围 |
+| `SKILL.md` `LICENSE` `scripts/` | 开发 → 部署到生产 | deploy 的同步范围，与发布包完全一致 |
+| `references/` | **只开发有** | 维护者文档，agent 不读；生产端 deploy 时会连目录一起删 |
 | `dist/` | 只开发有 | 打包产物，生产不需要 |
 | `.git` `.gitignore` `.gitattributes` | 只开发有 | 生产不是仓库 |
 | `data/` | **两边各一份** | 运行时状态，见下 |
+
+生产目录最终长这样，跟别人装完是一样的：
+
+```
+find-experts/
+├── SKILL.md
+├── LICENSE
+├── data/          # 索引 + token，运行时产生
+└── scripts/
+```
 
 ## 日常流程
 
@@ -32,7 +43,9 @@ node scripts/deploy.mjs --verify
 node scripts/pack.mjs          # -> dist/find-experts-v<版本>.zip
 ```
 
-deploy 只做三件事：新增目标缺的、覆盖内容不同的、删掉源端已不存在的（限 `references/` 和 `scripts/` 内）。它**不碰** `data/`、`dist/`、`.git`、`.workbuddy`。
+deploy 只做三件事：新增目标缺的、覆盖内容不同的、删掉源端已不存在的（限 `scripts/` 内）。它**不碰** `data/`、`dist/`、`.git`、`.workbuddy`。
+
+`references/` 是唯一的例外——不在同步范围，反而会把生产端的整个目录删掉。因为它是维护者文档，`SKILL.md` 不引用它，装到别人机器上也不存在，生产端留着没有意义。
 
 ## data/ 为什么各留一份
 
@@ -71,5 +84,5 @@ git checkout main
 - **版本号在 `SKILL.md` 的 frontmatter**，deploy 不会 bump。改了代码要不要升版本由你判断，但要发 zip 就得升
 - **定时任务绑的是生产路径**（`~/.workbuddy/skills/find-experts/scripts/update.mjs`）。生产目录别改名，一改定时任务就指向不存在的地方
 - **从市场重装 skill 会覆盖生产目录**。如果生产已经 deploy 了比市场上新的版本，重装等于回退，装完记得再 deploy 一次
-- **`references/` 不随包发布**，所以 `SKILL.md` 里不引用它。这个目录只服务于维护者，装到别人机器上不存在
+- **`references/` 只存在于开发环境**，`SKILL.md` 不引用它。生产端和发布包里都没有这个目录，所以维护笔记永远不会泄漏给用户
 - **`pack.mjs` 和 `deploy.mjs` 都不进包**，两个脚本在 `SKIP` 名单里

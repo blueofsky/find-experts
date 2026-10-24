@@ -4,7 +4,9 @@
 // 只在仓库里用，不进发布包（pack.mjs 的 SKIP 里有它）。
 //
 // 同步范围（与 pack.mjs 的 RELEASE 一致）：
-//   SKILL.md, LICENSE, references/, scripts/   —— pack.mjs、deploy.mjs 跳过
+//   SKILL.md, LICENSE, scripts/          —— pack.mjs、deploy.mjs 跳过
+// 生产端不保留的：
+//   references/（维护者文档，agent 不读，装到别人机器上也不存在）
 // 绝不触碰目标端的：
 //   data/（索引 + token）、dist/、.git、.workbuddy
 //
@@ -25,7 +27,9 @@ const SRC = path.resolve(HERE, '..');
 
 const DEFAULT_TARGET = path.join(os.homedir(), '.workbuddy', 'skills', 'find-experts');
 const ROOT_FILES = ['SKILL.md', 'LICENSE'];
-const DIRS = ['references', 'scripts'];
+const DIRS = ['scripts'];
+// 只在开发环境存在、生产端连目录都不该留的
+const PURGE_DIRS = ['references'];
 const SKIP_NAMES = new Set(['pack.mjs', 'deploy.mjs']);
 
 const args = process.argv.slice(2);
@@ -117,6 +121,7 @@ if (!fs.existsSync(path.join(TARGET, 'SKILL.md'))) {
 const files = collectSource();
 const srcSet = new Set(files);
 const stale = collectStale(srcSet);
+const purged = PURGE_DIRS.filter((d) => fs.existsSync(path.join(TARGET, d)));
 
 const changed = [];
 const added = [];
@@ -132,7 +137,7 @@ console.log(`源端  ${SRC}  (v${skillVersion(SRC)})`);
 console.log(`目标  ${TARGET}  (v${skillVersion(TARGET)})`);
 console.log(`范围  ${files.length} 个文件\n`);
 
-if (!added.length && !changed.length && !stale.length) {
+if (!added.length && !changed.length && !stale.length && !purged.length) {
   console.log('✓ 已是最新，无需部署');
   if (VERIFY) runVerify();
   process.exit(0);
@@ -141,9 +146,10 @@ if (!added.length && !changed.length && !stale.length) {
 for (const r of added) console.log(`  + ${r}`);
 for (const r of changed) console.log(`  ~ ${r}`);
 for (const r of stale) console.log(`  - ${r}`);
+for (const d of purged) console.log(`  - ${d}/  （整目录，生产不保留）`);
 
 if (DRY) {
-  console.log(`\n(dry-run) 将要 新增 ${added.length}、覆盖 ${changed.length}、删除 ${stale.length}`);
+  console.log(`\n(dry-run) 将要 新增 ${added.length}、覆盖 ${changed.length}、删除 ${stale.length + purged.length}`);
   process.exit(0);
 }
 
@@ -156,14 +162,17 @@ for (const rel of [...added, ...changed]) {
 for (const rel of stale) {
   fs.rmSync(path.join(TARGET, rel), { force: true });
 }
+for (const d of purged) {
+  fs.rmSync(path.join(TARGET, d), { recursive: true, force: true });
+}
 
-// 删掉空的 references/ 之类残留目录
+// 删掉同步后变空的目录
 for (const d of DIRS) {
   const base = path.join(TARGET, d);
   if (fs.existsSync(base) && fs.readdirSync(base).length === 0) fs.rmdirSync(base);
 }
 
-console.log(`\n✓ 部署完成：新增 ${added.length}、覆盖 ${changed.length}、删除 ${stale.length}`);
+console.log(`\n✓ 部署完成：新增 ${added.length}、覆盖 ${changed.length}、删除 ${stale.length + purged.length}`);
 console.log(`  v${skillVersion(TARGET)}  下一步：node ${TARGET.replace(/\\/g, '/')}/scripts/selftest.mjs`);
 
 if (VERIFY) runVerify();
