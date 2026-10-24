@@ -4,8 +4,7 @@ description: 帮用户从 WorkBuddy 专家市场全库里找专家。当用户�
 license: MIT
 metadata:
   author: laoli
-  version: "1.4.2"
-  node: ">=22"
+  version: "1.4.3"
 ---
 
 # find-experts
