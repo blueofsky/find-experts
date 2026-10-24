@@ -25,8 +25,8 @@ const NAME = 'find-experts';
 const OUT = path.join(DIST, NAME);
 
 const RELEASE = ['SKILL.md', 'LICENSE', 'scripts'];
-// 打包器自己和 Python 编译缓存不进包
-const SKIP = new Set(['pack.mjs', '__pycache__']);
+// 打包器、部署工具和 Python 编译缓存不进包
+const SKIP = new Set(['pack.mjs', 'deploy.mjs', '__pycache__']);
 const SKIP_FILE = /\.pyc$/i;
 // 命中任何一个就中止：这类文件一旦进包，等于把凭证或全量数据公开
 const FORBIDDEN = /(^|[\\/])(wb-token\.env|atrest\.key|index\.bin|history\.json|meta\.json)$|\.env$/i;
