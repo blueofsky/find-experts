@@ -1,12 +1,15 @@
-"""WorkBuddy 客户端登录态解密（Windows 最小子集）。
+"""WorkBuddy 客户端登录态解密。
 
-来源：totorosir-workbuddy-score/scripts/buddy_station.py 的精确子集。
+来源：totorosir-workbuddy-score/scripts/buddy_station.py 的精确子集（MIT-0）。
 用 AST 按函数名抽取 [lineno, end_lineno] 区间，未改动任何实现。
 
 保留 decrypt_access_token_field 的调用闭包：
   DPAPI 解 atRestSecretKey -> 信封解析 -> 派生 key -> AES-256-GCM 解密
-  以及 Windows 进程内存密钥发现（客户端 5.6.2+ 密钥只驻留内存时用）。
-裁掉：macOS 的 Keychain / CDP、Linux 的 /proc、core dump 途径。
+  以及密钥发现的三条途径：客户端数据目录、macOS Keychain、进程内存、CDP 调试端口。
+
+裁掉：core dump 与 Linux /proc 两条上游自注「未在本项目环境实测」的途径。
+CDP 那条是上游注释里写明「macOS 上唯一被实测可行的自动途径」，Hardened Runtime
+会让进程内存与核心转储都不可用，所以 macOS 靠它。
 
 上游改了客户端加密格式时要同步更新本文件，否则解密报错会指向这里。
 本文件不含任何密钥或 token，密钥只在内存中校验。
@@ -17,8 +20,15 @@ import hashlib
 import json
 import os
 import re
+import socket
+import struct
 import subprocess
 import sys
+import tempfile
+import time
+import shutil
+import urllib.parse
+import urllib.request
 
 
 AUTH_FILENAMES = ["workbuddy-desktop.info"]
@@ -690,16 +700,26 @@ def _diag_lines():
 
 
 def _default_key_file_paths():
-    """本脚本默认查找的 atRestSecretKey 文件（由 --set-key 写入，权限 0600）。
+    """atRestSecretKey 的本地缓存路径（写入权限 0600）。
 
-    放在 ~/.workbuddy/scripts/ 下而不是环境变量，是为了让「WorkBuddy 自带自动化」
-    （不继承自定义环境变量）也能拿到密钥 —— 用户在终端里 --set-key 一次即可长期生效。
+    第一个是本 skill 自己的 data/atrest.key —— 只在 skill 目录内落盘，
+    不碰客户端和其他 skill 的位置。
+    第二个是上游 skill 的缓存位置，只读兜底：用户装过那个 skill 时可以直接
+    复用同一把密钥，省一次 CDP 启动。
     """
-    config_dir = os.environ.get("CODEBUDDY_CONFIG_DIR") or os.path.join(os.path.expanduser("~"), ".workbuddy")
+    home = os.path.expanduser("~")
+    upstream = os.environ.get("CODEBUDDY_CONFIG_DIR") or os.path.join(home, ".workbuddy")
     return _dedupe([
-        os.path.join(config_dir, "scripts", "atrest.key"),
-        os.path.join(config_dir, "atrest.key"),
+        os.path.join(_skill_data_dir(), "atrest.key"),
+        os.path.join(upstream, "scripts", "atrest.key"),
+        os.path.join(upstream, "atrest.key"),
     ])
+
+
+def _skill_data_dir():
+    """本 skill 的 data/ 目录（client_auth.py 位于 <skill>/scripts/lib/）。"""
+    here = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(os.path.dirname(os.path.dirname(here)), "data")
 
 
 def _candidate_to_at_rest_key(blob_or_text, target_key_id):
@@ -823,16 +843,530 @@ def find_login_state():
     return None
 
 
-# ---- 精简版密钥获取（上游同名函数的 Windows 子集）----
-# 上游还包含 macOS Keychain、CDP 调试端口、Linux /proc、core dump 四条途径。
-# 这里只留 Windows 需要的两条：客户端数据目录的 DPAPI 密钥文件、运行中进程内存。
+# ---- 密钥获取：平台相关的补充途径 ----
+# 上游 buddy_station.py 有六条途径：env / 本地密钥文件 / 客户端数据目录 /
+# macOS Keychain / 进程内存 / CDP 调试端口。这里补上 Keychain 与 CDP，裁掉
+# core dump 与 Linux /proc —— 上游对后两者自注「未在本项目环境实测」。
+# CDP 那条是上游注释里写明的「macOS 上唯一被实测可行的自动途径」。
+
+_CDP_EXPR = (
+    "(()=>{"
+    "try{const b=process._linkedBinding('electron_browser_workbuddy_storage');"
+    "if(b&&b.loggerGet)return 'BINDING:'+b.loggerGet();}catch(e){}"
+    "try{const r=(typeof require!=='undefined')?require:"
+    "(process.mainModule&&process.mainModule.require);"
+    "return 'MOD:'+r('electron').workbuddyStorage.loggerGet();}"
+    "catch(e){return 'ERR:'+e.message}})()"
+)
+_CDP_STARTUP_WAIT = 60      # 等待调试端口就绪的最长时间（秒）
+_CDP_EVAL_TIMEOUT = 30      # 等待求值返回的最长时间（秒）
+
+_KEYCHAIN_SERVICE_CANDIDATES = (
+    "WorkBuddy Safe Storage",
+    "WorkBuddy",
+    "CodeBuddy Safe Storage",
+    "CodeBuddy",
+    "CodeBuddyExtension Safe Storage",
+    "CodeBuddyExtension",
+    "workbuddy-desktop",
+)
+
+
+def _cdp_probe_enabled():
+    """CDP 途径开关（默认开启；WORKBUDDY_ATREST_CDP=0 关闭）。"""
+    v = os.environ.get("WORKBUDDY_ATREST_CDP", "").strip().lower()
+    if v in ("0", "false", "no", "off"):
+        return False
+    return True
+
+
+def _client_hardened_hint():
+    """macOS：探测 SIP 状态，用于解释「为什么进程内存 / 核心转储走不通」（只读）。"""
+    if sys.platform != "darwin":
+        return None
+    try:
+        p = subprocess.run(["/usr/bin/csrutil", "status"],
+                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=10)
+        text = p.stdout.decode("utf-8", "replace").strip()
+    except Exception:
+        return None
+    if "enabled" in text.lower():
+        return ("系统完整性保护（SIP）已启用，客户端以 Hardened Runtime 签名时"
+                "会拒绝调试器附加与内存读取，故 macOS 改走 CDP 调试端口途径")
+    return text or None
+
+
+def _client_executable_candidates():
+    """本机客户端可执行文件候选（按平台）。
+
+    macOS 段与上游逐字一致。Windows / Linux 段做了精简：这两条平台默认靠本地
+    登录态和进程内存就能拿到密钥，CDP 只是最后的兜底，没必要扫全盘。
+    可用 WORKBUDDY_CLIENT_PATH 直接指定。
+    """
+    override = os.environ.get("WORKBUDDY_CLIENT_PATH", "").strip().strip('"')
+    if override:
+        return [override] if os.path.isfile(override) else []
+    home = os.path.expanduser("~")
+    cands = []
+    if sys.platform == "darwin":
+        for app in ("WorkBuddy", "CodeBuddy"):
+            for exe in ("Electron", app, "WorkBuddy", "CodeBuddy"):
+                cands.append("/Applications/%s.app/Contents/MacOS/%s" % (app, exe))
+                cands.append(os.path.join(home, "Applications", "%s.app" % app,
+                                          "Contents", "MacOS", exe))
+    elif sys.platform.startswith("win"):
+        local = os.environ.get("LOCALAPPDATA") or os.path.join(home, "AppData", "Local")
+        pf = os.environ.get("ProgramFiles") or "C:\\Program Files"
+        for name in ("WorkBuddy", "CodeBuddy"):
+            for base in (os.path.join(local, "Programs", name),
+                         os.path.join(local, name),
+                         os.path.join(pf, name)):
+                for exe in ("%s.exe" % name, "%s.exe" % name.lower()):
+                    cands.append(os.path.join(base, exe))
+    else:
+        for n in ("workbuddy", "codebuddy", "WorkBuddy", "CodeBuddy"):
+            p = shutil.which(n)
+            if p:
+                cands.append(p)
+        # POSIX 兜底：直接读运行中的进程（macOS 的 ps comm 给的是完整路径，
+        # 自定义安装位置、改名后的包都能命中，比猜 /Applications 可靠）
+        try:
+            raw = subprocess.run(["ps", "-Ao", "comm="],
+                                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                 timeout=10).stdout.decode("utf-8", "replace")
+            for line in raw.splitlines():
+                p = line.strip()
+                base = os.path.basename(p).lower()
+                if not p or not os.path.isabs(p):
+                    continue
+                if "workbuddy" in base or "codebuddy" in base:
+                    cands.append(p)
+        except Exception:
+            pass
+
+    seen = set()
+    out = []
+    for c in cands:
+        c = os.path.abspath(c)
+        if c in seen:
+            continue
+        seen.add(c)
+        if os.path.isfile(c) and os.access(c, os.X_OK):
+            out.append(c)
+    return out
+
+
+def _pick_free_port():
+    """向系统申请一个空闲端口（用于 --inspect）。失败返回 None。"""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+        s.close()
+        return port
+    except Exception:
+        return None
+
+
+class _WSClient(object):
+    """极简 WebSocket 客户端（仅 CDP 所需的最小子集：握手 / 文本帧 / 分片）。"""
+
+    def __init__(self, sock, timeout=10):
+        self.sock = sock
+        self.sock.settimeout(timeout)
+        self.buf = b""
+
+    def _fill(self, need):
+        while len(self.buf) < need:
+            try:
+                d = self.sock.recv(65536)
+            except socket.timeout:
+                raise IOError("读取超时")
+            if not d:
+                raise IOError("连接已关闭")
+            self.buf += d
+
+    def _take(self, n):
+        self._fill(n)
+        out, self.buf = self.buf[:n], self.buf[n:]
+        return out
+
+    def handshake(self, host, port, path):
+        key = base64.b64encode(os.urandom(16)).decode("ascii")
+        req = ("GET %s HTTP/1.1\r\n"
+               "Host: %s:%d\r\n"
+               "Upgrade: websocket\r\n"
+               "Connection: Upgrade\r\n"
+               "Sec-WebSocket-Key: %s\r\n"
+               "Sec-WebSocket-Version: 13\r\n\r\n" % (path, host, port, key))
+        self.sock.sendall(req.encode("ascii"))
+        head = b""
+        while b"\r\n\r\n" not in head:
+            try:
+                d = self.sock.recv(4096)
+            except socket.timeout:
+                raise IOError("握手超时")
+            if not d:
+                raise IOError("握手阶段连接关闭")
+            head += d
+        status = head.split(b"\r\n", 1)[0].decode("latin-1", "replace")
+        if "101" not in status:
+            raise IOError("握手失败：%s" % status.strip())
+        self.buf = head.split(b"\r\n\r\n", 1)[1]
+
+    def send_text(self, text):
+        data = text.encode("utf-8")
+        n = len(data)
+        header = bytearray([0x81])
+        if n < 126:
+            header.append(0x80 | n)
+        elif n < 65536:
+            header.append(0x80 | 126)
+            header += struct.pack(">H", n)
+        else:
+            header.append(0x80 | 127)
+            header += struct.pack(">Q", n)
+        mask = os.urandom(4)
+        masked = bytearray(b ^ mask[i % 4] for i, b in enumerate(bytearray(data)))
+        self.sock.sendall(bytes(header) + mask + bytes(masked))
+
+    def read_message(self):
+        """读取一条完整消息（自动合并分片）。返回 (opcode, payload_bytes)。"""
+        out = b""
+        opcode = None
+        while True:
+            b1, b2 = bytearray(self._take(2))
+            fin = bool(b1 & 0x80)
+            op = b1 & 0x0F
+            masked = bool(b2 & 0x80)
+            ln = b2 & 0x7F
+            if ln == 126:
+                ln = struct.unpack(">H", self._take(2))[0]
+            elif ln == 127:
+                ln = struct.unpack(">Q", self._take(8))[0]
+            if masked:
+                mask = self._take(4)
+            payload = self._take(ln)
+            if masked:
+                payload = bytes(bytearray(x ^ mask[i % 4]
+                                          for i, x in enumerate(bytearray(payload))))
+            if op == 0x8:
+                return 0x8, out
+            if op in (0x9, 0xA):
+                continue
+            if opcode is None:
+                opcode = op
+            out += payload
+            if fin:
+                return (opcode or 0x1), out
+
+
+def _cdp_evaluate(host, port, path, expression, timeout=_CDP_EVAL_TIMEOUT):
+    """经 CDP 执行一次 Runtime.evaluate，返回字符串结果。失败抛异常。"""
+    sock = socket.create_connection((host, port), timeout=timeout)
+    ws = _WSClient(sock, timeout=timeout)
+    try:
+        ws.handshake(host, port, path)
+        ws.send_text(json.dumps({"id": 1, "method": "Runtime.enable"}))
+        ws.read_message()
+        ws.send_text(json.dumps({
+            "id": 2, "method": "Runtime.evaluate",
+            "params": {"expression": expression, "returnByValue": True,
+                       "awaitPromise": False},
+        }))
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            op, payload = ws.read_message()
+            if op == 0x8:
+                break
+            try:
+                msg = json.loads(payload.decode("utf-8", "replace"))
+            except Exception:
+                continue
+            if msg.get("id") == 2:
+                result = (msg.get("result") or {}).get("result") or {}
+                if "value" in result:
+                    return result.get("value")
+                if msg.get("error"):
+                    raise IOError("CDP 错误：%s" % (msg["error"].get("message") or msg["error"]))
+                raise IOError("求值未返回值：%s" % json.dumps(msg)[:200])
+        raise IOError("等待 CDP 求值返回超时")
+    finally:
+        try:
+            sock.close()
+        except Exception:
+            pass
+
+
+def _parse_cdp_key_payload(value):
+    """从 loggerGet() 返回内容中取出 atRestSecretKey。"""
+    if not isinstance(value, str):
+        value = json.dumps(value, ensure_ascii=False)
+    text = value.strip()
+    for prefix in ("BINDING:", "MOD:"):
+        if text.startswith(prefix):
+            text = text[len(prefix):].strip()
+            break
+    if text.startswith("ERR:"):
+        raise IOError(text[4:])
+    try:
+        obj = json.loads(text)
+    except Exception:
+        raise IOError("调试端口返回内容不是 JSON：%s" % text[:120])
+    if isinstance(obj, str):
+        return obj
+    if isinstance(obj, dict):
+        for k in ("atRestSecretKey", "secretKey", "key", "at_rest_secret_key"):
+            v = obj.get(k)
+            if isinstance(v, str) and v:
+                return v
+    raise IOError("返回内容中未找到 atRestSecretKey：%s" % text[:120])
+
+
+def _discover_at_rest_key_from_cdp(target_key_id, auto_save=True):
+    """经客户端主进程 Node 调试端口（CDP）取 atRestSecretKey。
+
+    做法：用临时 user-data-dir 再起一个客户端实例并带 --inspect，抢在单例锁
+    把它踢掉之前连上 Node Inspector，让客户端自己的原生模块交出密钥。
+    macOS 上这是唯一实测可行的自动途径。
+
+    取得后按 keyId 严格校验；通过且 auto_save 时缓存到 data/atrest.key（0600）。
+    返回密钥字符串；失败返回 None（原因写进诊断记录）。
+    """
+    if not _cdp_probe_enabled():
+        _diag_record("cdp.inspector", "skipped", "已由 WORKBUDDY_ATREST_CDP=0 关闭")
+        return None
+    exes = _client_executable_candidates()
+    if not exes:
+        _diag_record("cdp.inspector", "failed",
+                     "未找到客户端可执行文件（可设 WORKBUDDY_CLIENT_PATH=绝对路径 指定）")
+        return None
+    tmpdir = tempfile.mkdtemp(prefix="wb-cdp-profile-")
+    env = os.environ.copy()
+    env.pop("ELECTRON_RUN_AS_NODE", None)
+    proc = None
+    try:
+        # 候选可执行文件 × 2 轮：单例锁存在竞态，同一候选重试一次通常能抢到
+        attempts = (exes[:2]) * 2 or []
+        last_err = "未尝试"
+        key = None
+        for exe in attempts:
+            port = _pick_free_port()
+            if not port:
+                _diag_record("cdp.inspector", "failed", "无法申请空闲调试端口")
+                return None
+            args = [exe, "--inspect=%d" % port, "--user-data-dir=%s" % tmpdir]
+            if sys.platform.startswith("linux"):
+                args.append("--no-sandbox")
+            try:
+                proc = subprocess.Popen(args, env=env,
+                                        stdout=subprocess.DEVNULL,
+                                        stderr=subprocess.DEVNULL,
+                                        stdin=subprocess.DEVNULL)
+            except Exception as e:
+                last_err = "启动客户端实例失败：%s" % e
+                continue
+            # 抢在「单例锁」之前抓调试目标：第二实例会在 1s 内因 single_instance_locked
+            # 退出，但 Node Inspector 在启动早期就已监听 —— 所以 0.2s 密集轮询，
+            # 且不因进程退出而放弃（退出后端口可能仍短暂可连）。
+            target = None
+            deadline = time.time() + _CDP_STARTUP_WAIT
+            while time.time() < deadline:
+                try:
+                    with urllib.request.urlopen(
+                            "http://127.0.0.1:%d/json/list" % port, timeout=2) as resp:
+                        listing = json.loads(resp.read().decode("utf-8", "replace"))
+                except Exception:
+                    time.sleep(0.2)
+                    continue
+                for t in listing or []:
+                    if t.get("type") == "node" and t.get("webSocketDebuggerUrl"):
+                        target = t
+                        break
+                if target:
+                    break
+                time.sleep(0.2)
+            if not target:
+                last_err = ("调试端口未在 %ds 内就绪（实例启动失败、被单例锁拦截，"
+                            "或客户端可执行文件为 stub）" % _CDP_STARTUP_WAIT)
+                try:
+                    proc.terminate()
+                except Exception:
+                    pass
+                proc = None
+                time.sleep(1.5)  # 给上一个实例留出释放锁的时间
+                continue
+            url = urllib.parse.urlparse(target["webSocketDebuggerUrl"])
+            try:
+                value = _cdp_evaluate(url.hostname or "127.0.0.1",
+                                      url.port or port,
+                                      url.path or "/", _CDP_EXPR)
+                key = _parse_cdp_key_payload(value)
+            except Exception as e:
+                last_err = "调试求值失败：%s" % e
+                try:
+                    proc.terminate()
+                except Exception:
+                    pass
+                proc = None
+                time.sleep(1.5)
+                continue
+            break
+
+        if not key:
+            _diag_record("cdp.inspector", "failed", last_err)
+            return None
+        if not _key_candidate_matches(key, target_key_id):
+            _diag_record("cdp.inspector", "failed",
+                         "取得的密钥与登录态信封 keyId 不匹配（可能已轮换）")
+            return None
+        note = "经客户端调试端口取得密钥"
+        if auto_save:
+            try:
+                ok, _msg = save_at_rest_key(key)
+                note += "并已缓存到 data/atrest.key（0600）" if ok else "（缓存失败，仅本次使用）"
+            except Exception:
+                pass
+        _diag_record("cdp.inspector", "ok", note)
+        return key
+    except Exception as e:
+        _diag_record("cdp.inspector", "failed", "异常：%s" % e)
+        return None
+    finally:
+        if proc is not None:
+            try:
+                proc.terminate()
+            except Exception:
+                pass
+            try:
+                proc.wait(timeout=5)
+            except Exception:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+        try:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+        except Exception:
+            pass
+
+
+# ---- macOS Keychain ----
+
+def _keychain_service_names():
+    """Keychain 探测的 service 名列表（可用 WORKBUDDY_KEYCHAIN_SERVICES 追加）。"""
+    names = list(_KEYCHAIN_SERVICE_CANDIDATES)
+    for raw in os.environ.get("WORKBUDDY_KEYCHAIN_SERVICES", "").split(","):
+        s = raw.strip()
+        if s and s not in names:
+            names.append(s)
+    return names
+
+
+def _keychain_service_hit(service):
+    """探测 Keychain 中是否存在该 service 的条目（只查属性、不读值，不触发授权弹窗）。"""
+    try:
+        r = subprocess.run(["security", "find-generic-password", "-s", service],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
+def _keychain_read_value(service):
+    """读取 Keychain 条目值；可能触发系统授权弹窗，故仅在条目已确认存在时调用。值绝不打印。"""
+    try:
+        r = subprocess.run(["security", "find-generic-password", "-s", service, "-w"],
+                           stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=5)
+        if r.returncode != 0:
+            return None
+        return r.stdout.decode("utf-8", "replace").strip()
+    except Exception:
+        return None
+
+
+def _extract_b64_candidates_from_text(text):
+    """从一段文本中提取 44 字符 canonical base64 候选（含 JSON atRestSecretKey 字段）。"""
+    if not isinstance(text, str) or not text:
+        return []
+    out = []
+    for c in re.findall(r"[A-Za-z0-9+/]{43}=", text):
+        if c not in out:
+            out.append(c)
+    try:
+        d = json.loads(text)
+        if isinstance(d, dict) and isinstance(d.get("atRestSecretKey"), str):
+            if d["atRestSecretKey"] not in out:
+                out.append(d["atRestSecretKey"])
+    except Exception:
+        pass
+    return out
+
+
+def _discover_at_rest_key_from_keychain(target_key_id):
+    """macOS：在 Keychain 的 safeStorage 类条目中查找 atRestSecretKey。
+
+    上游实测客户端 5.6.2（macOS）未把密钥写入 Keychain（由原生模块在运行时提供），
+    本环节仅作兼容兜底：只在条目真实存在时读值，并按 keyId 严格校验。
+    """
+    if sys.platform != "darwin":
+        return None
+    try:
+        for service in _keychain_service_names():
+            if not _keychain_service_hit(service):
+                continue
+            value = _keychain_read_value(service)
+            if not value:
+                continue
+            for cand in _extract_b64_candidates_from_text(value):
+                if _key_candidate_matches(cand, target_key_id):
+                    return cand
+        return None
+    except Exception:
+        return None
+
+
+def save_at_rest_key(raw_text):
+    """校验并把 atRestSecretKey 缓存到 data/atrest.key（权限 0600）。
+
+    只写本 skill 自己的目录，不碰客户端和别的 skill 的位置。
+    返回 (ok, message)；message 里只出现 keyId，不出现密钥本体。
+    """
+    text = (raw_text or "").strip().strip('"').strip("'").strip()
+    if not text:
+        return False, "密钥为空。"
+    try:
+        _, key_id = _derive_at_rest_key(text)
+    except Exception as e:
+        return False, "不是合法的 44 字符规范 base64 密钥：%s" % e
+    path = _default_key_file_paths()[0]
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text + "\n")
+        try:
+            os.chmod(path, 0o600)
+        except Exception:
+            pass
+    except Exception as e:
+        return False, "写入失败：%s" % e
+    return True, "密钥已缓存（keyId=%s）：%s" % (key_id, path)
+
+
 def _discover_at_rest_key(target_key_id):
-    """定位并解开 atRestSecretKey（44 字符规范 base64），校验派生 keyId 一致。
+    """定位并解开 atRestSecretKey（44 字符规范 base64），要求派生 keyId 一致。
 
-    顺序：环境变量 -> 环境变量指定的文件 -> 本地密钥文件 -> 客户端数据目录
-          -> 客户端进程内存。
+    顺序（与上游 _discover_at_rest_key 同序）：
+      1) 环境变量 WORKBUDDY_ATREST_KEY
+      2) 环境变量 WORKBUDDY_ATREST_KEY_FILE 指向的文件
+      3) 本地密钥缓存（本 skill 的 data/atrest.key，及上游 skill 的缓存位置）
+      4) 客户端数据目录里由平台密钥库加密的密钥文件（Windows 上是 DPAPI blob）
+      5) macOS：Keychain safeStorage 类条目（兼容兜底）
+      6) 进程内存：仅 Windows（ReadProcessMemory）
+      7) 客户端调试端口 CDP（macOS 主途径，其他平台兜底）
 
-    返回 atRestSecretKey 字符串；找不到抛 RuntimeError（带诊断记录）。
+    返回 atRestSecretKey 字符串；找不到抛 RuntimeError（带按平台区分的提示）。
     """
     _KEY_ACQ_DIAG.clear()
 
@@ -898,6 +1432,18 @@ def _discover_at_rest_key(target_key_id):
     _diag_record("client.keyfile_scan", "failed",
                  "扫描客户端数据目录，命中 %d 个候选密钥文件" % dpapi_tried)
 
+    # macOS：Keychain 兼容兜底
+    try:
+        kc_key = _discover_at_rest_key_from_keychain(target_key_id)
+    except Exception:
+        kc_key = None
+    if kc_key:
+        _diag_record("macos.keychain", "ok", "由 Keychain 条目解出密钥")
+        return kc_key
+    if sys.platform == "darwin":
+        _diag_record("macos.keychain", "failed", "未发现 safeStorage 类条目命中")
+
+    # 进程内存：本子集只实现 Windows
     if sys.platform.startswith("win"):
         try:
             mem_key = _discover_at_rest_key_from_memory_windows(target_key_id)
@@ -906,17 +1452,30 @@ def _discover_at_rest_key(target_key_id):
         if mem_key:
             _diag_record("process.memory_scan", "ok", "由进程内存命中密钥")
             return mem_key
-        if "process.memory_scan" not in _KEY_ACQ_DIAG:
-            _diag_record("process.memory_scan", "failed", "未命中")
+        _diag_record("process.memory_scan", "failed", "未命中")
     else:
-        _diag_record("process.memory_scan", "skipped", "非 Windows 平台，本子集不提供该途径")
+        _diag_record("process.memory_scan", "skipped", "本子集仅实现 Windows 进程内存")
 
+    # 客户端调试端口：macOS 主途径，其他平台兜底
+    try:
+        cdp_key = _discover_at_rest_key_from_cdp(target_key_id)
+    except Exception:
+        cdp_key = None
+    if cdp_key:
+        return cdp_key
+
+    hint = _client_hardened_hint() if sys.platform == "darwin" else None
     raise RuntimeError(
         "无法在本机定位 WorkBuddy 5.6.2+ 的 atRestSecretKey（平台：%s）。\n"
-        "已尝试：环境变量、本地密钥文件、客户端数据目录（命中 %d 个候选）、客户端进程内存。\n%s\n"
+        "已尝试：环境变量、本地密钥文件、%d 个候选密钥文件、%s、客户端调试端口。\n%s\n"
         "可选项：\n"
         "  (a) 确认 WorkBuddy 客户端已启动并登录后重跑；\n"
         "  (b) 设置环境变量 WORKBUDDY_ATREST_KEY=<44字符规范base64>；\n"
-        "  (c) 直接提供现成 JWT：设置 WB_ACCESS_TOKEN，绕过解密。\n"
-        % (_platform_tag(), dpapi_tried, "\n".join(_diag_lines()) or "（无诊断记录）")
+        "  (c) 直接提供现成 JWT：设置 WB_ACCESS_TOKEN，绕过解密；\n"
+        "  (d) 设 WORKBUDDY_ATREST_CDP=1（默认已开）并确认客户端可执行文件路径，"
+        "或用 WORKBUDDY_CLIENT_PATH 指定。\n"
+        % (_platform_tag(), dpapi_tried,
+           "客户端进程内存" if sys.platform.startswith("win")
+           else "Keychain（本平台已试）",
+           "\n".join(_diag_lines()) or "（无诊断记录）")
     )

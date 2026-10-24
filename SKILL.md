@@ -6,7 +6,7 @@ description: 帮用户从 WorkBuddy 专家市场全库里找专家。当用户�
 description_zh: 按「要做的事」在 WorkBuddy 专家市场全库里找人，给出专家名、账号、使用量、版本和详情深链，能分辨同名专家。
 description_en: Find the right expert in the WorkBuddy marketplace by what the user wants to get done. Returns expert name, creator account, usage count, version and a detail link, and disambiguates experts sharing the same name.
 category: automation
-version: 1.4.5
+version: 1.5.0
 author: laoli
 license: MIT
 ---
@@ -25,7 +25,7 @@ node ~/.workbuddy/skills/find-experts/scripts/find.mjs "<用户原话>" --top 20
 
 > **安全边界**：只读你本机的 WorkBuddy 登录态，用来调专家市场的两个查询接口（`market/expert/list`、`market/expert/get-by-ids`，只读语义，与客户端自带面板同一套调用）。token 只在内存里用，**任何输出都不含 token**（含 `--json`）。
 >
-> 客户端把 `accessToken` 存成 AES-GCM 信封，解密密钥只在运行中的客户端进程内存里，Windows 上 `client_auth.py` 会枚举 WorkBuddy 进程读取该密钥——**只读这一个进程，只为解本机登录态，不外传任何内存内容**。解出来的 token 落在本 skill 的 `data/wb-token.env`（权限 600），不写回客户端任何文件。
+> 客户端把 `accessToken` 存成 AES-GCM 信封，解密密钥只在运行中的客户端进程内存里，Windows 上 `client_auth.py` 会枚举 WorkBuddy 进程读取该密钥——**只读这一个进程，只为解本机登录态，不外传任何内存内容**。Windows 之外的平台还会试 Keychain，以及**临时起一个带调试端口的客户端实例**（独立临时目录、用完即关）让客户端交出自己的密钥；不碰你正在用的那个窗口和配置。解出来的 token 落在本 skill 的 `data/wb-token.env`（权限 600），不写回客户端任何文件。
 >
 > 落盘只有 `data/` 一个目录（索引 + token），整个删掉不影响使用。**不修改、不删除 skill 目录以外的任何文件。**
 
@@ -160,6 +160,8 @@ JSON 输出里几个字段要先看（降级时没有这些，那时看 `degrade
 - **bigram 分词，不认同义词**（「涨粉」≠「增长」）。用户说法太离谱时换个说法再试一次，别硬推荐
 - **单个汉字基本查不到**（「画」「表」命中 0/1）。用户只说一个字时，问一句要哪方面的，别拿空结果交差
 - **`uc` 口径与专家中心排行榜不是一套数**，不要混着引用
+- **取凭证是 Windows 优先的**。Windows 走客户端登录态，开箱即用；macOS / Linux 依次试 Keychain、调试端口、`WB_ACCESS_TOKEN`，**未在 macOS 实测过**。索引建好之后检索本身跟平台无关，取不到新数据时只是数据停在旧快照
+- **用户装完第一次就报 `auth_expired`（退出码 2）**，直接把报错里那段「可选项」原样转给他，别自己猜。里面 (a)~(d) 就是按平台列的自救路径
 
 ## 维护
 

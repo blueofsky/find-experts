@@ -66,3 +66,28 @@ data/wb-token.env    1 KB   登录凭证，权限 600
 | official_sync | 31 | `developer` 是 `undefined`，无 `fingerprint` |
 
 所以 `--detail` **不是「看更详细的介绍」**，专家描述在检索结果里已经全了；它只补作者和安装包，而且作者可能没有。
+
+## 跨平台取密钥：实测结论（2026-10-24）
+
+`client_auth.py` 从上游 `buddy_station.py`（MIT-0）补回了 macOS 的 Keychain、CDP 调试端口两条途径，Windows 进程内存那条原样保留。三条路的现状不同：
+
+| 途径 | 平台 | 状态 |
+|---|---|---|
+| DPAPI + 客户端数据目录 | Windows | 实测可用 |
+| `ReadProcessMemory` 扫进程内存 | Windows | 实测可用（本机密钥来源就是它） |
+| Keychain `security find-generic-password` | macOS | 上游自己注释「5.6.2 未把密钥写进 Keychain，仅作兼容兜底」 |
+| CDP 调试端口 | macOS 主途径 / 其他平台兜底 | **本机实测失败**，见下 |
+
+**CDP 实测记录**（`CodeBuddy CN.exe`，2026-10-24 版）：
+
+- 起实例 → 连 Inspector → `Runtime.evaluate` 全链路通了，耗时 4.1 秒
+- 但上游那句取密钥的表达式失败：`No such binding was linked: electron_browser_workbuddy_storage`
+- 继续排查，这个 build 里 inspector 作用域**没有 `require`**（`typeof require === 'undefined'`），`process.mainModule` 也没了，`import('node:module')` 被 vm 拦掉（`ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING`）
+- 轮询了 1.6 秒确认 binding 不是延迟注册，是这个名字根本不存在
+- `process.type` 是 `browser`，说明确实连到了主进程，不是连错了目标
+
+**所以「照抄上游就能在 mac 上跑」这个假设不成立**。上游那条表达式依赖 `electron_browser_workbuddy_storage` 这个内部 binding 名字，build 一换就断。macOS 的客户端是不是这个名字我不知道，没法验证。
+
+保留这段代码的理由不是「它能用」，是**它比没有强**：Windows 上永远走不到（内存扫描先命中），mac 上失败时会写一条精确诊断（`cdp.inspector: failed（...）`），用户至少知道断在哪一环，而不是看到一句「凭证失效」。
+
+真要给 macOS 一个确定可用的方案，方向不是继续猜 binding，而是走网页会话授权（浏览器里跑 snippet 拿凭据），也就是上游的通道 B。代价是用户要走一次手动授权，好处是不依赖客户端内部实现。
