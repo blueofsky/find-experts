@@ -67,6 +67,8 @@ token 由 `scripts/lib/export-token.py` 取，落在 `<skill>/data/wb-token.env`
 %LOCALAPPDATA%\CodeBuddyExtension\Data\Public\auth\workbuddy-desktop.info
 ```
 
+这个 `CodeBuddyExtension` 目录是 **WorkBuddy 桌面端自己创建的**，只是沿用了 CodeBuddy 的命名，**不需要另外安装 CodeBuddy**。
+
 客户端把这个路径归为敏感位置，会弹「读取文件命中询问规则」，三个选项：允许读取 / 本次会话内允许此目录 / 拒绝。**这是客户端的护栏，不是 skill 出问题**——任何读该路径的程序都会弹。
 
 - 选允许：正常拿到信封，解出 token 存进 `data/wb-token.env`，之后在 JWT `exp` 之前不再碰客户端文件（本机实测约 27 天）

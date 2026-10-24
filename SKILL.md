@@ -6,7 +6,7 @@ description: 帮用户从 WorkBuddy 专家市场全库里找专家。当用户�
 description_zh: 按「要做的事」在 WorkBuddy 专家市场全库里找人，给出专家名、账号、使用量、版本和详情深链，能分辨同名专家。
 description_en: Find the right expert in the WorkBuddy marketplace by what the user wants to get done. Returns expert name, creator account, usage count, version and a detail link, and disambiguates experts sharing the same name.
 category: automation
-version: 1.5.2
+version: 1.5.3
 author: laoli
 license: MIT
 ---
@@ -160,7 +160,7 @@ JSON 输出里几个字段要先看（降级时没有这些，那时看 `degrade
 - **bigram 分词，不认同义词**（「涨粉」≠「增长」）。用户说法太离谱时换个说法再试一次，别硬推荐
 - **单个汉字基本查不到**（「画」「表」命中 0/1）。用户只说一个字时，问一句要哪方面的，别拿空结果交差
 - **`uc` 口径与专家中心排行榜不是一套数**，不要混着引用
-- **取凭证是 Windows 优先的**。Windows 走客户端登录态，开箱即用；macOS / Linux 依次试 Keychain、调试端口、`WB_ACCESS_TOKEN`，**未在 macOS 实测过**。索引建好之后检索本身跟平台无关，取不到新数据时只是数据停在旧快照
+- **取凭证是 Windows 优先的**。Windows 走 WorkBuddy 桌面端登录态，开箱即用（登录态目录叫 `CodeBuddyExtension`，是历史命名，**不需要另装 CodeBuddy**）；macOS / Linux 依次试 Keychain、调试端口、`WB_ACCESS_TOKEN`，**未在 macOS 实测过**。索引建好之后检索本身跟平台无关，取不到新数据时只是数据停在旧快照
 - **用户装完第一次就报 `auth_expired`（退出码 2）**，直接把报错里那段「可选项」原样转给他，别自己猜。里面 (a)~(d) 就是按平台列的自救路径
 
 ## 维护
