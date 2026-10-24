@@ -1,0 +1,11 @@
+# 索引与派生产物，不进版本库（data 全量约 51 MB）
+# 含 index.bin（49 MB）、history.json、meta.json，以及 wb-token.env（登录凭证）
+# 索引可重建：node scripts/update.mjs
+/data/
+
+# 定时任务执行记录（cwd 设在本目录，自动生成）
+/.workbuddy/
+
+# 兜底：任何位置的凭证与环境变量文件
+*.env
+*.tmp
