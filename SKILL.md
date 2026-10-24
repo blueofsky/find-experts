@@ -1,10 +1,14 @@
 ---
 name: find-experts
+display_name: 找专家
+display_name_en: Expert Finder
 description: 帮用户从 WorkBuddy 专家市场全库里找专家。当用户问「有没有擅长 X 的专家」「这活该找谁」「哪个专家能写/审/算/做 X」「找个懂 X 的人」，或报出专家名要定位（「AI短剧制作那个」）、要分辨同名专家里哪条才对、要看使用量或多久没更新时使用。只做检索和推荐，不替用户切换或安装专家。
+description_zh: 按「要做的事」在 WorkBuddy 专家市场全库里找人，给出专家名、账号、使用量、版本和详情深链，能分辨同名专家。
+description_en: Find the right expert in the WorkBuddy marketplace by what the user wants to get done. Returns expert name, creator account, usage count, version and a detail link, and disambiguates experts sharing the same name.
+category: automation
+version: 1.4.4
+author: laoli
 license: MIT
-metadata:
-  author: laoli
-  version: "1.4.3"
 ---
 
 # find-experts
@@ -17,11 +21,13 @@ metadata:
 node ~/.workbuddy/skills/find-experts/scripts/find.mjs "<用户原话>" --top 20 --json
 ```
 
+下文路径都按这个安装目录写。市场分发的目录名可能带后缀（`find-experts__skillhub`），先 `ls ~/.workbuddy/skills/ | grep find-experts` 对一下，不一致就替换掉这一段。
+
 ## 三种请求
 
 | 用户说的 | 怎么做 |
 |---|---|
-| 「有没有擅长 X 的专家」「这活找谁」 | 跑上面的检索，读 `hits` 精排，给 1~3 个 |
+| 「有没有擅长 X 的专家」「这活找谁」 | 跑上面的检索，读 `hits` 精排，给真正匹配的那几条 |
 | 报出专家名（「AI短剧制作那个」） | 同一条命令，原话送进去。标题命中权重大，基本能排第一 |
 | 「打开看看」「给我链接」 | 给 `open_url`，或 `--open ex_xxx` 让脚本代发 |
 
@@ -166,8 +172,8 @@ node ~/.workbuddy/skills/find-experts/scripts/selftest.mjs          # 回归：8
 
 | 文件 | 什么时候读 |
 |---|---|
-| `references/troubleshooting.md` | 非 0 退出码、凭证失效、数据长期不更新、降级要恢复 |
-| `references/internals.md` | 维护者：代码证据、深链机制、`data/` 结构、面板调研 |
-| `references/tuning.md` | 要改权重 / 分词 / 字段映射时，先看已经试过什么 |
+| `@references/troubleshooting.md` | 非 0 退出码、凭证失效、数据长期不更新、降级要恢复 |
+| `@references/internals.md` | 维护者：代码证据、深链机制、`data/` 结构、面板调研 |
+| `@references/tuning.md` | 要改权重 / 分词 / 字段映射时，先看已经试过什么 |
 
 **正常情况下一份都不用打开。**
