@@ -1,0 +1,2 @@
+# 脚本与文档统一 LF：python 脚本带 shebang，CRLF 会导致 bad interpreter
+* text=auto eol=lf
