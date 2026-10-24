@@ -31,6 +31,10 @@ const BACKOFF_MS = 60 * 60 * 1000;
 const SCHEMA_VERSION = 1;
 const GUARD_LOW = 0.9;
 const GUARD_HIGH = 1.3;
+// 页级失败上限。条数护栏只看总量比例，232 页里挂 25 页（约 2500 条、10%）它照样放行，
+// 所以这一条单独判，而且**不受 --force 影响**：条数突变可能是市场真变了，
+// 页抓失败则是确定性错误，残缺索引没有任何价值。
+const FAIL_PAGE_PCT = 0.03;
 const HISTORY_KEEP_DAYS = 90;
 
 const argv = process.argv.slice(2);
@@ -181,6 +185,17 @@ async function main() {
       return 1;
     }
 
+    // 页级失败护栏：先于条数护栏判。失败页是确定性错误，--force 也不放行。
+    const failedPages = res.failedPages || 0;
+    const pagesTotal = res.pagesTotal || 0;
+    if (pagesTotal && failedPages / pagesTotal > FAIL_PAGE_PCT) {
+      const pct = ((failedPages / pagesTotal) * 100).toFixed(1);
+      const msg = `抓取不完整：${failedPages}/${pagesTotal} 页失败（${pct}%），超过 ${(FAIL_PAGE_PCT * 100).toFixed(0)}% 上限`;
+      markFailure(oldMeta, 'incomplete', msg);
+      log('[guard] ' + msg + '，已保留旧索引');
+      return 4;
+    }
+
     // 条数护栏：市场总量突变通常意味着接口异常或抓取中断
     if (!FORCE && oldTotal >= 1000) {
       const ratio = docs.length / oldTotal;
@@ -215,14 +230,17 @@ async function main() {
 
     const meta = {
       schema_version: SCHEMA_VERSION,
-      status: 'ok',
+      // 少量页失败时照样写盘（丢 1~2 页不值得放弃整轮），但状态要如实标 partial，
+      // find.mjs 看到非 ok 就会提示「本次刷新缺 N 页」。以前这里是硬编码 'ok'，
+      // failed_pages 写进 meta 之后没有任何代码读它，等于白记。
+      status: failedPages ? 'partial' : 'ok',
       generated_at: nowIso(),
       data_updated_at: dataUpdatedAt,
       total: docs.length,
       agents,
       teams,
       totals_declared: res.totals,
-      failed_pages: res.failedPages || 0,
+      failed_pages: failedPages,
       sources: res.sourceCount || {},
       cats,
       token_exp: res.tokenExp ? res.tokenExp.toISOString() : (oldMeta && oldMeta.token_exp) || null,

@@ -111,12 +111,14 @@ async function runFetch(tk, { log, types }) {
   const seen = new Set();
   const totals = {};
   let failedPages = 0;
+  let pagesTotal = 0;
 
   for (const type of types) {
     const first = await req({ page: 1, page_size: PAGE_SIZE, expert_type: type, sort_by: 'reco_rank', sort_order: 'desc' });
     const total = first.total_count ?? 0;
     totals[type] = total;
     const pages = Math.ceil(total / PAGE_SIZE);
+    pagesTotal += pages;
 
     const push = (arr) => {
       for (const e of arr || []) {
@@ -128,7 +130,6 @@ async function runFetch(tk, { log, types }) {
     push(first.experts);
 
     let next = 2;
-    let done = 1;
     await Promise.all(
       Array.from({ length: CONCURRENCY }, async () => {
         while (true) {
@@ -141,19 +142,18 @@ async function runFetch(tk, { log, types }) {
             failedPages++;
             log(`[fetch] ${type} 第 ${p} 页失败：${e.message}`);
           }
-          done++;
         }
       })
     );
     log(`[fetch] ${type}: ${pages} 页 / 声明总数 ${total} / 实际收 ${docs.filter((d) => d.type === type).length}`);
   }
 
-  if (failedPages) log(`[fetch] 共 ${failedPages} 页失败，结果可能不完整`);
+  if (failedPages) log(`[fetch] 共 ${failedPages}/${pagesTotal} 页失败，结果不完整`);
 
   const sourceCount = {};
   for (const d of docs) sourceCount[d.src || 'unknown'] = (sourceCount[d.src || 'unknown'] || 0) + 1;
 
-  return { docs, totals, sourceCount, tokenExp: tk.exp, failedPages };
+  return { docs, totals, sourceCount, tokenExp: tk.exp, failedPages, pagesTotal };
 }
 
 // 实时关键字检索：不是「另一种搜索方式」，只在本地索引不可用时兜底。

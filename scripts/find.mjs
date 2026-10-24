@@ -27,16 +27,15 @@ const TTL_DAYS = 7;
 
 const argv = process.argv.slice(2);
 const FLAGS = new Set(['--json', '--refresh', '--explain', '--quiet', '--help', '-h']);
-const VALUED = new Set(['--top', '--cat', '--type', '--detail', '--open']);
+const VALUED = new Set(['--top', '--cat', '--type', '--detail']);
 
-const opts = { top: 20, cat: null, type: null, json: false, refresh: false, explain: false, quiet: false, detail: null, open: null };
+const opts = { top: 20, cat: null, type: null, json: false, refresh: false, explain: false, quiet: false, detail: null };
 const words = [];
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i];
   if (a === '--help' || a === '-h') {
     console.log('用法: node find.mjs "<需求>" [--top 20] [--cat 分类] [--type agent|team] [--json] [--refresh] [--explain]');
     console.log('      node find.mjs --detail <expert_id> [--json]     查作者与安装包（不一定有 developer，official_sync 来源的没有）');
-    console.log('      node find.mjs --open <expert_id>                直接调起客户端打开这个专家');
     process.exit(0);
   }
   if (a === '--json' || a === '--refresh' || a === '--explain' || a === '--quiet') { opts[a.slice(2)] = true; continue; }
@@ -45,16 +44,20 @@ for (let i = 0; i < argv.length; i++) {
     if (a === '--top') opts.top = Math.max(1, Math.min(100, parseInt(v, 10) || 20));
     else if (a === '--cat') opts.cat = v;
     else if (a === '--detail') opts.detail = v;
-    else if (a === '--open') opts.open = v;
     else opts.type = v;
     continue;
+  }
+  if (a === '--open') {
+    console.error('--open 已移除：用结果里的 open_url 让用户自己点。');
+    console.error('脚本从外部调协议抢前台不算用户操作，而且详情页会离开当前对话。');
+    process.exit(1);
   }
   if (FLAGS.has(a)) continue;
   words.push(a);
 }
 
 const query = words.join(' ').trim();
-if (!query && !opts.detail && !opts.open) {
+if (!query && !opts.detail) {
   console.error('缺少查询内容。用法: node find.mjs "<需求>" [--top 20] [--json]');
   process.exit(1);
 }
@@ -101,27 +104,9 @@ function hitOf(d, rank, extra = {}) {
   };
 }
 
-// --open：把客户端切到这个专家的详情页。走系统注册的 workbuddy:// 协议，
-// 不依赖聊天界面允不允许点自定义协议。
-// 注意会离开当前对话（详情页没有返回栈），所以是显式动作，别当默认落地方式。
-if (opts.open) {
-  const url = openUrl(opts.open);
-  let r;
-  if (process.platform === 'win32') r = spawnSync('cmd.exe', ['/c', 'start', '', url], { stdio: 'ignore' });
-  else if (process.platform === 'darwin') r = spawnSync('open', [url], { stdio: 'ignore' });
-  else r = spawnSync('xdg-open', [url], { stdio: 'ignore' });
-  if (r.error || r.status) {
-    console.error(`调起客户端失败：${r.error ? r.error.message : `退出码 ${r.status}`}`);
-    console.error(`手动打开：${url}`);
-    process.exit(1);
-  }
-  console.log(`已发给客户端：${url}`);
-  console.log('WorkBuddy 窗口应该已经切到这个专家的详情页。');
-  console.log('');
-  console.log('注意：详情页上点「召唤」会切到一个新的专家会话，不是在当前对话里换角色。');
-  console.log('当前这个对话还在左侧会话列表里，点一下就回来。');
-  process.exit(0);
-}
+// 这里刻意不提供「替用户打开详情页」。open_url 交给渲染层，用户点一下就是一次
+// 带手势的跳转；脚本从外部调 cmd.exe / start 抢前台不算用户操作，且详情页会离开
+// 当前对话。落地方式只有「给链接让用户点」和「指引去 + 面板搜 title」两种。
 
 // --detail：查作者和安装包。这两个字段只有 get-by-ids 有（list 的 29 个字段里没有），
 // 也只有这两个是新的——其余字段和检索结果完全相同，所以它不是「看更多描述」。
@@ -180,7 +165,8 @@ if (opts.detail) {
 const HINT = {
   2: '客户端登录态失效。在 WorkBuddy 桌面端重新登录后重试',
   3: '另一个更新进程正在跑。等它结束后重跑这条查询即可',
-  4: '条数护栏触发（新数据与上次偏差过大）。确认市场确实有变动后跑 update.mjs --force',
+  4: '本次抓取不完整或条数偏差过大，已保留旧索引。条数偏差可以确认后跑 update.mjs --force；'
+    + '页抓失败（日志里的 [guard] 抓取不完整）重跑一次即可，--force 也绕不过这条',
   5: '网络或接口失败，脚本已进入 1 小时退避。跑 update.mjs --force 可立即重试',
 };
 // 硬失败：本地没有可用数据，而实时接口同样救不了（凭证失效/网络不通），
@@ -201,7 +187,8 @@ if (!fs.existsSync(IDX)) {
 if (opts.refresh) {
   const code = runUpdate(['--force']);
   if (code === 0) degraded = null;   // 刷新成功，降级解除
-  else say(`[update] 刷新失败（退出码 ${code}）${degraded ? '，继续降级' : '，继续使用现有数据'}`);
+  else say(`[update] 刷新未成功（退出码 ${code}）：${HINT[code] || '详见 update.mjs 的日志'}`
+    + (degraded ? '，继续降级' : '，继续使用现有数据'));
 }
 
 // 索引读不出来先尝试自修：损坏的索引重建一次就好了，不该直接退到实时接口。
@@ -309,7 +296,11 @@ for (let i = 0; i < N; i++) if (scores[i] > 0) rough.push(i);
 rough.sort((x, y) => scores[y] - scores[x]);
 const pool = rough.slice(0, Math.max(opts.top * 15, 200));
 
-const catHit = (cats) => !opts.cat || cats.some((c) => c.includes(opts.cat) || opts.cat.includes(c));
+// 分类是精确匹配。以前这里是双向子串（c.includes(opts.cat) || opts.cat.includes(c)），
+// 好处是 --cat 技术 能命中「技术工程」，坏处是筛选口径和 catHint 的精确判断互相打架：
+// 前面按「技术」筛了一轮，后面没结果又说「分类『技术』不在市场里」。
+// 现在一律精确，写错就明说写错，并把相近的列出来让用户改，不静默放宽。
+const catHit = (cats) => !opts.cat || cats.includes(opts.cat);
 
 const final = [];
 for (const i of pool) {
@@ -319,6 +310,14 @@ for (const i of pool) {
   final.push({ i, d, score: scores[i] * ucBoost(d.uc) * titleBoost(d.title) });
 }
 final.sort((x, y) => (y.score - x.score) || ((x.d.rr || 1e9) - (y.d.rr || 1e9)));
+
+// status 是给程序看的枚举，别原样念给用户
+const STATUS_ZH = {
+  auth_expired: '登录态失效',
+  count_guard: '新数据条数偏差过大',
+  incomplete: '抓取不完整',
+  network_error: '网络或接口失败',
+};
 
 const hits = final.slice(0, opts.top).map((h, n) => {
   const text = [h.d.title, h.d.account, (h.d.tags || []).join(' '), h.d.desc, (h.d.qp || []).join(' ')]
@@ -342,9 +341,12 @@ const out = {
   age_days: ageDays,
   stale,
   status: meta.status || 'unknown',
-  warning: meta.status && meta.status !== 'ok'
-    ? `数据刷新失败（${meta.status}），当前为 ${meta.data_updated_at ? meta.data_updated_at.slice(0, 10) : '更早'} 的快照`
-    : null,
+  // partial 是「写盘了但缺几页」，跟「刷新失败、全是旧数据」不是一回事，分开说。
+  warning: !meta.status || meta.status === 'ok'
+    ? null
+    : meta.status === 'partial'
+      ? `数据不完整：上次刷新有 ${meta.failed_pages || '几'} 页抓取失败，当前 ${meta.total} 条（重跑一次 update.mjs 可补）`
+      : `数据刷新失败（${STATUS_ZH[meta.status] || meta.status}），当前为 ${meta.data_updated_at ? meta.data_updated_at.slice(0, 10) : '更早'} 的快照`,
   // 凭证剩余天数：token 刷新要靠外部解密模块，模块不在时只有到期才暴露。
   // 低于 7 天提前说，别等数据停更了才发现。
   token_days_left: typeof meta.token_days_left === 'number' ? meta.token_days_left : null,
@@ -363,7 +365,13 @@ const out = {
 function catHint() {
   const cats = Object.keys((meta && meta.cats) || {});
   if (opts.cat && cats.length && !cats.includes(opts.cat)) {
-    return `分类「${opts.cat}」不在市场里。可选：${cats.join(' / ')}`;
+    // 没精确命中时，把「有子串关系」的分类列出来当改动建议。
+    // 只用它提示，不拿它筛——否则用户永远不知道自己的分类名写错了。
+    const near = cats.filter((c) => c.includes(opts.cat) || opts.cat.includes(c));
+    const lead = near.length
+      ? `分类「${opts.cat}」不在市场里，相近的是 ${near.join(' / ')}。`
+      : `分类「${opts.cat}」不在市场里。`;
+    return `${lead}全部可选：${cats.join(' / ')}`;
   }
   return '没有召回结果，换更贴近业务的说法，或放宽 --cat / --type';
 }

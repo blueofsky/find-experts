@@ -46,7 +46,9 @@ data/wb-token.env    1 KB   登录凭证，权限 600
 
 ## 没有 web 端专家市场
 
-`www.workbuddy.cn/app/experts` 只是个 SPA 壳，`/experts`、`/market` 直接 404，前端没有市场路由，带上 `?keyword=` 也不会被解析。想让用户看到某个专家只有三条路：`+` 面板搜 `title`、左侧边栏「专家」搜 `title`、`--open` 走 `workbuddy://` 深链。**别拼 http 链接。**
+`www.workbuddy.cn/app/experts` 只是个 SPA 壳，`/experts`、`/market` 直接 404，前端没有市场路由，带上 `?keyword=` 也不会被解析。想让用户看到某个专家只有三条路：`+` 面板搜 `title`、左侧边栏「专家」搜 `title`、把 `open_url`（`workbuddy://experts?id=ex_xxx`）给用户点。**别拼 http 链接。**
+
+> 2026-10-24：删掉了 `find.mjs --open`。它实现没问题（win/mac/linux 三分支），但那是脚本从外部调 `cmd.exe /c start`，没有用户手势就抢前台，而且详情页会离开当前对话。`open_url` 交给渲染层、用户自己点，效果一样且不越界。
 
 ## 为什么不做 keyword 搜索
 
