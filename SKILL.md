@@ -6,7 +6,7 @@ description: 帮用户从 WorkBuddy 专家市场全库里找专家。当用户�
 description_zh: 按「要做的事」在 WorkBuddy 专家市场全库里找人，给出专家名、账号、使用量、版本和详情深链，能分辨同名专家。
 description_en: Find the right expert in the WorkBuddy marketplace by what the user wants to get done. Returns expert name, creator account, usage count, version and a detail link, and disambiguates experts sharing the same name.
 category: automation
-version: 1.4.4
+version: 1.4.5
 author: laoli
 license: MIT
 ---
@@ -22,6 +22,12 @@ node ~/.workbuddy/skills/find-experts/scripts/find.mjs "<用户原话>" --top 20
 ```
 
 下文路径都按这个安装目录写。市场分发的目录名可能带后缀（`find-experts__skillhub`），先 `ls ~/.workbuddy/skills/ | grep find-experts` 对一下，不一致就替换掉这一段。
+
+> **安全边界**：只读你本机的 WorkBuddy 登录态，用来调专家市场的两个查询接口（`market/expert/list`、`market/expert/get-by-ids`，只读语义，与客户端自带面板同一套调用）。token 只在内存里用，**任何输出都不含 token**（含 `--json`）。
+>
+> 客户端把 `accessToken` 存成 AES-GCM 信封，解密密钥只在运行中的客户端进程内存里，Windows 上 `client_auth.py` 会枚举 WorkBuddy 进程读取该密钥——**只读这一个进程，只为解本机登录态，不外传任何内存内容**。解出来的 token 落在本 skill 的 `data/wb-token.env`（权限 600），不写回客户端任何文件。
+>
+> 落盘只有 `data/` 一个目录（索引 + token），整个删掉不影响使用。**不修改、不删除 skill 目录以外的任何文件。**
 
 ## 三种请求
 
