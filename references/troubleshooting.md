@@ -51,10 +51,10 @@
 
 ## 凭证
 
-token 由 `scripts/lib/export-token.py` 取，落在 `<skill>/data/wb-token.env`（权限 600，`.gitignore` 已排除）。三条来源：
+token 由 `scripts/export-token.py` 取，落在 `<skill>/data/wb-token.env`（权限 600，`.gitignore` 已排除）。三条来源：
 
 1. **`WB_ACCESS_TOKEN` 环境变量**（最高优先）——设了合法 JWT 就直接用，不启动 python、不碰客户端登录态。无头环境、CI 走这条。
-2. **内置 `scripts/lib/client_auth.py`** —— WorkBuddy 5.6.2+ 把 `accessToken` 存成 AES-GCM 信封，这份文件用本机的 atRestSecretKey 解开：先找 DPAPI 加密的密钥文件，找不到就扫客户端进程内存。
+2. **内置 `scripts/client_auth.py`** —— WorkBuddy 5.6.2+ 把 `accessToken` 存成 AES-GCM 信封，这份文件用本机的 atRestSecretKey 解开：先找 DPAPI 加密的密钥文件，找不到就扫客户端进程内存。
 3. **`WB_BUDDY_STATION` 指向的外部模块**（应急通道）——内置模块因客户端升级失效时，可以临时指向别的实现。
 
 第 2 条是内联的，**不依赖任何其他 skill**。它来自 totorosir-workbuddy-score 的 `buddy_station.py`（MIT-0），按函数闭包抽出来的子集。v1.5.0 之后 Windows 的 DPAPI / 进程内存、macOS 的 Keychain / CDP 都在，只省掉了 core dump 这类用不上的途径。如果哪天客户端改了加密格式、解密报错，改这一个文件即可。
@@ -80,7 +80,7 @@ token 由 `scripts/lib/export-token.py` 取，落在 `<skill>/data/wb-token.env`
 诊断单个环节：
 
 ```bash
-python "~/.workbuddy/skills/find-experts/scripts/lib/export-token.py" --check   # 只报状态，不写盘、不打印 token
+python "~/.workbuddy/skills/find-experts/scripts/export-token.py" --check   # 只报状态，不写盘、不打印 token
 ```
 
 输出里的 `module` 字段说清走的是 `builtin` 还是外部模块，`source` 说清 token 来自环境变量还是客户端登录态。

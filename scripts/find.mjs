@@ -13,8 +13,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { readIndex } from './lib/index.mjs';
-import { queryGrams, BM25, ucBoost, makeTitleBoost } from './lib/text.mjs';
+import { readIndex } from './index.mjs';
+import { queryGrams, BM25, ucBoost, makeTitleBoost } from './text.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..');
@@ -77,7 +77,7 @@ function runUpdate(extra = []) {
 // 前端没有解析 keyword 的代码，点开只会落到应用首页。web 端没有专家市场。
 const openUrl = (id) => `workbuddy://experts?id=${encodeURIComponent(id || '')}`;
 
-// 名字直达先验由 lib/text.mjs 提供，selftest 用的是同一份实现，避免两边打分逻辑分叉。
+// 名字直达先验由 text.mjs 提供，selftest 用的是同一份实现，避免两边打分逻辑分叉。
 const titleBoost = makeTitleBoost(query);
 
 // 条目统一构造，降级路径也走这里，免得 agent 要分辨两套结构
@@ -126,7 +126,7 @@ if (opts.open) {
 // --detail：查作者和安装包。这两个字段只有 get-by-ids 有（list 的 29 个字段里没有），
 // 也只有这两个是新的——其余字段和检索结果完全相同，所以它不是「看更多描述」。
 if (opts.detail) {
-  const { getByIds } = await import('./lib/fetch.mjs');
+  const { getByIds } = await import('./fetch.mjs');
   let raw;
   try {
     ({ raw } = await getByIds([opts.detail], { log: say }));
@@ -231,7 +231,7 @@ if (degraded) {
   say(`[degraded] ${degraded}，改走实时接口兜底`);
   let live;
   try {
-    const { searchLive } = await import('./lib/fetch.mjs');
+    const { searchLive } = await import('./fetch.mjs');
     live = await searchLive(query, { top: opts.top, type: opts.type, log: say });
   } catch (e) {
     const auth = e?.constructor?.name === 'AuthError';
@@ -349,7 +349,8 @@ const out = {
   // 低于 7 天提前说，别等数据停更了才发现。
   token_days_left: typeof meta.token_days_left === 'number' ? meta.token_days_left : null,
   token_warning: (typeof meta.token_days_left === 'number' && meta.token_days_left < 7)
-    ? `登录凭证 ${meta.token_days_left} 天后过期，过期后数据无法刷新（检索仍可用）。续期方式见 SKILL.md「凭证从哪来」`
+    ? `登录凭证 ${meta.token_days_left} 天后过期，过期后数据无法刷新（检索仍可用）。`
+      + '续期：重新登录 WorkBuddy 客户端后跑一次 update.mjs；一直拿不到凭证的，按 SKILL.md「边界」里 auth_expired 那两条走'
     : null,
   matched_grams: matchedGrams,
   elapsed_ms: Date.now() - t0,

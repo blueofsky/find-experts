@@ -717,9 +717,9 @@ def _default_key_file_paths():
 
 
 def _skill_data_dir():
-    """本 skill 的 data/ 目录（client_auth.py 位于 <skill>/scripts/lib/）。"""
+    """本 skill 的 data/ 目录（client_auth.py 位于 <skill>/scripts/）。"""
     here = os.path.dirname(os.path.abspath(__file__))
-    return os.path.join(os.path.dirname(os.path.dirname(here)), "data")
+    return os.path.join(os.path.dirname(here), "data")
 
 
 def _candidate_to_at_rest_key(blob_or_text, target_key_id):

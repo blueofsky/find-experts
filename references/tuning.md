@@ -12,11 +12,11 @@
 
 | 项 | 值 | 位置 |
 |---|---|---|
-| 分词 | 中文字符 bigram，去空白与标点 | `lib/text.mjs` |
-| 字段权重 | title ×3.2 / account ×1.8 / tags ×2.0 / desc ×1.0 / quick_prompts ×1.2 | `lib/text.mjs` |
-| BM25 | k1=1.2, b=0.75 | `lib/text.mjs` |
-| use_count 加成 | `ucBoost(uc) = 1 + 0.12×log10(1+uc)/7`，最高约 +12% | `lib/text.mjs` |
-| 标题直达先验 | `makeTitleBoost(query)`：标题==输入 ×3.0，标题含输入 ×1.6，标题被输入包含 ×1.3 | `lib/text.mjs` |
+| 分词 | 中文字符 bigram，去空白与标点 | `scripts/text.mjs` |
+| 字段权重 | title ×3.2 / account ×1.8 / tags ×2.0 / desc ×1.0 / quick_prompts ×1.2 | `scripts/text.mjs` |
+| BM25 | k1=1.2, b=0.75 | `scripts/text.mjs` |
+| use_count 加成 | `ucBoost(uc) = 1 + 0.12×log10(1+uc)/7`，最高约 +12% | `scripts/text.mjs` |
+| 标题直达先验 | `makeTitleBoost(query)`：标题==输入 ×3.0，标题含输入 ×1.6，标题被输入包含 ×1.3 | `scripts/text.mjs` |
 | reco_rank | 仅 tie-break，数字小者优先 | `find.mjs` |
 | display_position | **完全不参与**，那是市场页运营位 | — |
 | 召回宽度 | `top × 15`（最少 200） | `find.mjs` |

@@ -4,7 +4,7 @@
 > 状态：已落地（2026-10-23），实际实现与原方案的差异见第七节。
 > 日期：2026-10-23
 
-**这是 v1.0 的设计稿，用来说明「当初为什么这么定」，不是现状说明。** 写它时 skill 还叫 `expert-finder`，文中的脚本名和路径都按当时写（`export_wb_token.py` 现在是 `scripts/lib/export-token.py`，凭证从 `~/.workbuddy/` 挪进了 `data/`）。要看现在什么样，以 `SKILL.md` 和 `internals.md` 为准。
+**这是 v1.0 的设计稿，用来说明「当初为什么这么定」，不是现状说明。** 写它时 skill 还叫 `expert-finder`，文中的脚本名和路径都按当时写（`export_wb_token.py` 现在是 `scripts/export-token.py`，凭证从 `~/.workbuddy/` 挪进了 `data/`）。要看现在什么样，以 `SKILL.md` 和 `internals.md` 为准。
 
 ---
 

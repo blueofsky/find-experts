@@ -5,7 +5,7 @@
  * 只放 SKILL.md、LICENSE、scripts/。
  * references/ 是维护者笔记（排障记录、客户端内部实现、调参实验），
  * 使用者用不到，公开还会扩大审核面，所以不进包。
- * data/ 更不能进：里面有真的 accessToken 和 51 MB 索引。
+ * data/ 更不能进：里面有真的 accessToken 和 49 MB 索引。
  *
  * 用法：node scripts/pack.mjs
  * 产物：dist/find-experts/            解压后的目录，可先检查
@@ -186,14 +186,25 @@ if (leaked.length) {
   process.exit(1);
 }
 
+// 市场只认两级目录（包名/二级目录/文件），再深一层直接解析失败。
+// 曾经 scripts/lib/*.mjs 就是这个坑：本地跑得好好的，上传时报「目录层级超限」。
+const tooDeep = files.filter((f) => f.rel.split('/').length > 3);
+if (tooDeep.length) {
+  fs.rmSync(DIST, { recursive: true, force: true });
+  console.error('[pack] 中止：目录层级超过两级，市场上传会解析失败');
+  for (const f of tooDeep) console.error(`  ${f.rel}  （${f.rel.split('/').length} 层）`);
+  process.exit(1);
+}
+
 const ver = version();
 const zipPath = path.join(DIST, `${NAME}-v${ver}.zip`);
 const zip = zipDir(OUT, NAME, zipPath);
 
 const total = files.reduce((n, f) => n + f.size, 0);
+const human = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${(n / 1024).toFixed(0)} KB`);
 console.log(`v${ver}  ->  dist/${NAME}/`);
-console.log(`共 ${files.length} 个文件，${(total / 1024).toFixed(0)} KB\n`);
+console.log(`共 ${files.length} 个文件，${human(total)}\n`);
 for (const f of files.sort((a, b) => a.rel.localeCompare(b.rel))) {
-  console.log(`  ${String((f.size / 1024).toFixed(1)).padStart(7)} KB  ${f.rel}`);
+  console.log(`  ${human(f.size).padStart(9)}  ${f.rel}`);
 }
 console.log(`\n上传用：dist/${path.basename(zipPath)}  （${zip.count} 个文件，${(zip.bytes / 1024).toFixed(0)} KB）`);

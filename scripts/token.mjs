@@ -1,5 +1,5 @@
 // token.mjs  凭证读取与刷新
-// 凭证只存一份：<skill>/data/wb-token.env（由 lib/export-token.py 从客户端登录态解出）。
+// 凭证只存一份：<skill>/data/wb-token.env（由同目录的 export-token.py 从客户端登录态解出）。
 // 客户端是滑动续期，只要保持登录，重跑导出脚本拿到的就是最新 token。
 
 import fs from 'node:fs';
@@ -9,7 +9,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const SKILL_ROOT = path.resolve(HERE, '..', '..');
+const SKILL_ROOT = path.resolve(HERE, '..');
 const ENV_FILE = path.join(SKILL_ROOT, 'data', 'wb-token.env');
 const PY_SCRIPT = path.join(HERE, 'export-token.py');
 

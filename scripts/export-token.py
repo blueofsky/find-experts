@@ -2,16 +2,18 @@
 # -*- coding: utf-8 -*-
 """取 WorkBuddy accessToken，写到 <skill>/data/wb-token.env（权限 600）。
 
+由 scripts/token.mjs 在需要凭证时调用（首次安装自动抓数据、--refresh、update.mjs）。
+本 skill 只在本机自用，部署在 ~/.workbuddy/skills/find-experts，不进发布包。
+
 来源按优先级：
   1) 环境变量 WB_ACCESS_TOKEN —— 已是合法 JWT 就直接用，不碰客户端登录态
-  2) 内置 client_auth.py —— 解 5.6.2+ 的 AES-GCM 信封（DPAPI + 进程内存取密钥）
+  2) 同目录 client_auth.py —— 解 5.6.2+ 的 AES-GCM 信封（DPAPI + 进程内存取密钥）
   3) 外部模块（可选，WB_BUDDY_STATION 指定）—— 内置失效时的应急通道
 
-解密逻辑已内联在 scripts/lib/client_auth.py，删掉其他 skill 不影响本 skill。
-
 用法：
-  python export-token.py           导出并写盘
-  python export-token.py --check   只诊断，不写盘、不打印 token
+  python export-token.py                   导出并写盘（写到上级 data/）
+  python export-token.py --check           只诊断，不写盘、不打印 token
+  python export-token.py --out <目标文件>  指定输出路径（刷生产目录时用）
 
 stdout 输出一行 JSON 供 node 消费，绝不打印 token 本身。
 """
@@ -22,8 +24,18 @@ import stat
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SKILL_ROOT = os.path.dirname(os.path.dirname(HERE))
-ENV_OUT = os.path.join(SKILL_ROOT, "data", "wb-token.env")
+SKILL_ROOT = os.path.dirname(HERE)
+
+
+def _out_path():
+    if "--out" in sys.argv:
+        i = sys.argv.index("--out")
+        if i + 1 < len(sys.argv):
+            return os.path.abspath(sys.argv[i + 1])
+    return os.path.join(SKILL_ROOT, "data", "wb-token.env")
+
+
+ENV_OUT = _out_path()
 
 sys.path.insert(0, HERE)
 
@@ -67,7 +79,8 @@ def load_module():
     fail(
         "内置解密模块导入失败：%s" % builtin_err,
         "先试 (a) 设 WB_ACCESS_TOKEN=<JWT> 绕过解密；\n"
-        "(b) 若内置模块报语法/依赖错误，见 SKILL.md「凭证从哪来」。",
+        "(b) 若内置模块报语法/依赖错误，把上面的报错原样贴出来；\n"
+        "(c) 确认 WorkBuddy 桌面端已登录，且是 5.6.2+ 版本。",
     )
 
 
@@ -123,7 +136,7 @@ def main():
 
     os.makedirs(os.path.dirname(ENV_OUT), exist_ok=True)
     with open(ENV_OUT, "w", encoding="utf-8", newline="\n") as fh:
-        fh.write("# 由 find-experts/scripts/lib/export-token.py 生成，token 过期后重跑即可\n")
+        fh.write("# 由 scripts/export-token.py 生成，token 过期后重跑即可\n")
         fh.write('export WB_ACCESS_TOKEN="%s"\n' % token)
         fh.write('export WB_DOMAIN="%s"\n' % domain)
     try:

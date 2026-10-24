@@ -16,8 +16,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { fetchAll, slim, AuthError } from './lib/fetch.mjs';
-import { writeIndex, readIndex } from './lib/index.mjs';
+import { fetchAll, slim, AuthError } from './fetch.mjs';
+import { writeIndex, readIndex } from './index.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DATA = path.join(ROOT, 'data');

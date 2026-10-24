@@ -24,7 +24,7 @@ SOFTWARE.
 
 Third-party notice
 
-scripts/lib/client_auth.py is derived from buddy_station.py in the
+scripts/client_auth.py is derived from buddy_station.py in the
 totorosir-workbuddy-score skill by totorosir, which is released under MIT-0
 (no attribution required). The extraction is documented at the top of that
 file. That upstream file in turn implements decryption of the local client's

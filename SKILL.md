@@ -6,9 +6,17 @@ description: 帮用户从 WorkBuddy 专家市场全库里找专家。当用户�
 description_zh: 按「要做的事」在 WorkBuddy 专家市场全库里找人，给出专家名、账号、使用量、版本和详情深链，能分辨同名专家。
 description_en: Find the right expert in the WorkBuddy marketplace by what the user wants to get done. Returns expert name, creator account, usage count, version and a detail link, and disambiguates experts sharing the same name.
 category: automation
-version: 1.5.3
+version: 1.5.4
 author: laoli
 license: MIT
+examples_zh:
+  - "有没有擅长把访谈录音整理成书稿的专家"
+  - "AI短剧制作那个专家叫什么，帮我找出来"
+  - "搜到好几个同名的小红书专家，哪个用的人最多"
+examples_en:
+  - "Is there an expert good at turning interview recordings into a manuscript?"
+  - "Find the expert called AI Short Drama Production"
+  - "Several experts share the same name. Which one has the most users?"
 ---
 
 # find-experts
@@ -160,8 +168,8 @@ JSON 输出里几个字段要先看（降级时没有这些，那时看 `degrade
 - **bigram 分词，不认同义词**（「涨粉」≠「增长」）。用户说法太离谱时换个说法再试一次，别硬推荐
 - **单个汉字基本查不到**（「画」「表」命中 0/1）。用户只说一个字时，问一句要哪方面的，别拿空结果交差
 - **`uc` 口径与专家中心排行榜不是一套数**，不要混着引用
-- **取凭证是 Windows 优先的**。Windows 走 WorkBuddy 桌面端登录态，开箱即用（登录态目录叫 `CodeBuddyExtension`，是历史命名，**不需要另装 CodeBuddy**）；macOS / Linux 依次试 Keychain、调试端口、`WB_ACCESS_TOKEN`，**未在 macOS 实测过**。索引建好之后检索本身跟平台无关，取不到新数据时只是数据停在旧快照
-- **用户装完第一次就报 `auth_expired`（退出码 2）**，直接把报错里那段「可选项」原样转给他，别自己猜。里面 (a)~(d) 就是按平台列的自救路径
+- **平台支持：Windows 开箱即用，其他平台要手动给凭证。** Windows 走 WorkBuddy 桌面端登录态（登录态目录叫 `CodeBuddyExtension`，是历史命名，**不需要另装 CodeBuddy**）；macOS / Linux 依次试 Keychain、调试端口、`WB_ACCESS_TOKEN`，这几条路径代码是全的，但**没在真机上跑通过，别向用户承诺能用**。检索本身跟平台无关，取不到新数据只是数据停在旧快照
+- **用户装完第一次就报 `auth_expired`（退出码 2）**，直接把报错里那段「可选项」原样转给他，别自己猜。里面 (a)~(d) 就是按平台列的自救路径；实在取不到凭证时，`WB_ACCESS_TOKEN` 或 `--rebuild` 都能让检索继续可用
 
 ## 维护
 
@@ -169,7 +177,7 @@ JSON 输出里几个字段要先看（降级时没有这些，那时看 `degrade
 node ~/.workbuddy/skills/find-experts/scripts/update.mjs            # 正常刷新，约 20~30 秒，联网
 node ~/.workbuddy/skills/find-experts/scripts/update.mjs --force    # 忽略护栏与失败退避
 node ~/.workbuddy/skills/find-experts/scripts/update.mjs --rebuild  # 不联网，用现有数据重算索引，约 3.5 秒
-node ~/.workbuddy/skills/find-experts/scripts/selftest.mjs          # 回归：8 个用例，Top1 ≥7/8、Recall@5 8/8
+node ~/.workbuddy/skills/find-experts/scripts/selftest.mjs          # 回归：8 个用例，打印 Top1 / Recall@5 / Recall@10（基线 7/8、8/8、8/8，脚本只打印不判定）
 ```
 
 **平时不用碰。** 只有三种情况会用到：`stale` 且用户同意刷新、`degraded: true` 要恢复、用户明确让你动索引。每天 04:30 有定时任务在跑。

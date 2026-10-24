@@ -45,8 +45,12 @@ function die(msg) {
 
 function skillVersion(dir) {
   try {
-    const head = fs.readFileSync(path.join(dir, 'SKILL.md'), 'utf8').slice(0, 800);
-    const m = head.match(/^version:\s*(\S+)/m);
+    const text = fs.readFileSync(path.join(dir, 'SKILL.md'), 'utf8');
+    // 只取 frontmatter：以前截前 800 字，加了 examples 之后 version 被挤出窗口，
+    // 明明同步成功却打印 v?
+    const end = text.indexOf('\n---', 3);
+    const fm = text.startsWith('---') && end > 0 ? text.slice(3, end) : text;
+    const m = fm.match(/^version:\s*(\S+)/m);
     return m ? m[1] : '?';
   } catch {
     return '?';
@@ -166,11 +170,16 @@ for (const d of purged) {
   fs.rmSync(path.join(TARGET, d), { recursive: true, force: true });
 }
 
-// 删掉同步后变空的目录
-for (const d of DIRS) {
-  const base = path.join(TARGET, d);
-  if (fs.existsSync(base) && fs.readdirSync(base).length === 0) fs.rmdirSync(base);
+// 删掉同步后变空的目录（递归，含 scripts 下的子目录——曾经存在的 scripts/lib
+// 就是靠这一步清干净的，否则生产端会留一个空壳目录）
+function pruneEmptyDirs(dir) {
+  if (!fs.existsSync(dir)) return;
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (e.isDirectory()) pruneEmptyDirs(path.join(dir, e.name));
+  }
+  if (fs.readdirSync(dir).length === 0) fs.rmdirSync(dir);
 }
+for (const d of DIRS) pruneEmptyDirs(path.join(TARGET, d));
 
 console.log(`\n✓ 部署完成：新增 ${added.length}、覆盖 ${changed.length}、删除 ${stale.length + purged.length}`);
 console.log(`  v${skillVersion(TARGET)}  下一步：node ${TARGET.replace(/\\/g, '/')}/scripts/selftest.mjs`);

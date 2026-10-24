@@ -5,8 +5,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readIndex } from './lib/index.mjs';
-import { queryGrams, BM25, ucBoost, makeTitleBoost } from './lib/text.mjs';
+import { readIndex } from './index.mjs';
+import { queryGrams, BM25, ucBoost, makeTitleBoost } from './text.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DATA = path.resolve(HERE, '..', 'data');
@@ -46,7 +46,7 @@ function search(query, topk = 30) {
     }
   }
   const out = [];
-  // 打分和 find.mjs 共用 lib/text.mjs 的 ucBoost / makeTitleBoost，
+  // 打分和 find.mjs 共用 text.mjs 的 ucBoost / makeTitleBoost，
   // 否则调了权重或先验之后，测试还在跑旧逻辑，指标看着正常但和线上不一致。
   const tb = makeTitleBoost(query);
   for (let i = 0; i < N; i++) {
