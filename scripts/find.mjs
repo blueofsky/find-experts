@@ -268,6 +268,14 @@ const updatedAt = meta.data_updated_at ? new Date(meta.data_updated_at) : null;
 const ageDays = updatedAt ? Math.floor((Date.now() - updatedAt.getTime()) / 86400000) : null;
 const stale = ageDays === null || ageDays >= TTL_DAYS;
 
+// data_updated 是给人看的日期，必须按本地时区算。
+// 以前用 toISOString() 取的是 UTC：北京时间 07:32 跑完更新，会报成「昨天」，
+// 和 age_days: 0 自相矛盾，agent 转述给用户时也跟着错一天。
+const localDate = (d) => {
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+};
+
 const t0 = Date.now();
 const { N, avgLen, lens, offsets, docIds, tfs, vocabMap } = idx;
 const { k1, b } = BM25;
@@ -337,7 +345,7 @@ const hits = final.slice(0, opts.top).map((h, n) => {
 const out = {
   query,
   total: N,
-  data_updated: updatedAt ? updatedAt.toISOString().slice(0, 10) : null,
+  data_updated: updatedAt ? localDate(updatedAt) : null,
   age_days: ageDays,
   stale,
   status: meta.status || 'unknown',
@@ -346,7 +354,7 @@ const out = {
     ? null
     : meta.status === 'partial'
       ? `数据不完整：上次刷新有 ${meta.failed_pages || '几'} 页抓取失败，当前 ${meta.total} 条（重跑一次 update.mjs 可补）`
-      : `数据刷新失败（${STATUS_ZH[meta.status] || meta.status}），当前为 ${meta.data_updated_at ? meta.data_updated_at.slice(0, 10) : '更早'} 的快照`,
+      : `数据刷新失败（${STATUS_ZH[meta.status] || meta.status}），当前为 ${updatedAt ? localDate(updatedAt) : '更早'} 的快照`,
   // 凭证剩余天数：token 刷新要靠外部解密模块，模块不在时只有到期才暴露。
   // 低于 7 天提前说，别等数据停更了才发现。
   token_days_left: typeof meta.token_days_left === 'number' ? meta.token_days_left : null,
