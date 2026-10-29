@@ -4,8 +4,8 @@
 
 | | 路径 | 角色 |
 |---|---|---|
-| 开发 | `D:\AI\AIGC\laoli-kitchen\laoli-skills\find-experts` | git 仓库、唯一真相源、打包 | 
-| 生产 | `C:\Users\myjob\.workbuddy\skills\find-experts` | WorkBuddy 加载的真实 skill，**只读** |
+| 开发 | 你的 git 仓库目录（任意位置） | git 仓库、唯一真相源、打包 |
+| 生产 | `~/.workbuddy/skills/find-experts` | WorkBuddy 加载的真实 skill，**只读** |
 
 ## 文件归属
 
