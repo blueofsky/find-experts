@@ -7,7 +7,7 @@
 纯派生物，四样东西全都能从接口和客户端登录态重新生成：
 
 ```
-data/index.bin      49 MB   检索索引
+data/index.bin      ~57 MB  检索索引（约 2 MB/千条，随库规模涨）
 data/meta.json       1 KB   条数、抓取时间、分类分布、凭证剩余天数
 data/history.json    1 MB   每个专家首次/末次出现日期（当前无读方）
 data/wb-token.env    1 KB   登录凭证，权限 600
