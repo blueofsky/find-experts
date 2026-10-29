@@ -11,7 +11,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { readIndex } from './index.mjs';
 import { queryGrams, BM25, ucBoost, makeTitleBoost } from './text.mjs';
@@ -24,6 +24,8 @@ const META = path.join(DATA, 'meta.json');
 const UPDATE = path.join(HERE, 'update.mjs');
 
 const TTL_DAYS = 7;
+// 后台刷新撞上这个窗口就跳过，和 update.mjs 的退避保持一致
+const BACKOFF_MS = 60 * 60 * 1000;
 
 const argv = process.argv.slice(2);
 const FLAGS = new Set(['--json', '--refresh', '--explain', '--quiet', '--help', '-h']);
@@ -74,6 +76,28 @@ function runUpdate(extra = []) {
   say('[update] 数据缺失或需要刷新，先抓取…');
   const r = spawnSync(process.execPath, [UPDATE, ...extra], { stdio: ['ignore', 'ignore', 'inherit'] });
   return r.status;
+}
+
+// 数据超过 TTL 天才在后台补一次刷新，7 天之内一次都不会跑。
+// 用 detached 起进程，主流程立刻往下走，本次查询照常返回旧数据；
+// update.mjs 自己写盘是 tmp + rename 的原子替换，并发读不会读到半截。
+// 起不来的情况一律安静跳过：退避期内（1 小时）、索引本身不存在（上面已同步抓过）、
+// --refresh（用户已经明确要刷，别重复）、FIND_EXPERTS_NO_AUTO=1（排障/自检时关掉）。
+function maybeAutoRefresh(meta, stale) {
+  if (!stale || opts.refresh) return false;
+  if (process.env.FIND_EXPERTS_NO_AUTO === '1') return false;
+  if (!fs.existsSync(IDX)) return false;
+  const last = meta.last_attempt ? Date.parse(meta.last_attempt) : NaN;
+  if (Number.isFinite(last) && Date.now() - last < BACKOFF_MS) return false;
+  try {
+    const child = spawn(process.execPath, [UPDATE, '--quiet'], {
+      detached: true, stdio: 'ignore', windowsHide: true, cwd: ROOT,
+    });
+    child.unref();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // 专家详情深链。格式从客户端 app.asar 里挖出来的：
@@ -273,6 +297,7 @@ const meta = readMeta() || {};
 const updatedAt = meta.data_updated_at ? new Date(meta.data_updated_at) : null;
 const ageDays = updatedAt ? Math.floor((Date.now() - updatedAt.getTime()) / 86400000) : null;
 const stale = ageDays === null || ageDays >= TTL_DAYS;
+const autoRefresh = maybeAutoRefresh(meta, stale);
 
 // data_updated 是给人看的日期，必须按本地时区算。
 // 以前用 toISOString() 取的是 UTC：北京时间 07:32 跑完更新，会报成「昨天」，
@@ -354,6 +379,8 @@ const out = {
   data_updated: updatedAt ? localDate(updatedAt) : null,
   age_days: ageDays,
   stale,
+  // 本次查询已经顺手在后台起了一次更新（只会在数据超过 TTL 时发生）
+  auto_refresh: autoRefresh,
   status: meta.status || 'unknown',
   // partial 是「写盘了但缺几页」，跟「刷新失败、全是旧数据」不是一回事，分开说。
   warning: !meta.status || meta.status === 'ok'
@@ -394,10 +421,11 @@ if (opts.json) {
   console.log(JSON.stringify(out, null, 2));
 } else {
   console.log(`需求：${query}`);
-  console.log(`库：${N} 条 | 数据日期：${out.data_updated}${stale ? `（已 ${ageDays} 天，建议刷新）` : ''}`
+  console.log(`库：${N} 条 | 数据日期：${out.data_updated}${stale ? `（已 ${ageDays} 天，${autoRefresh ? '正在后台更新' : '建议刷新'}）` : ''}`
     + ` | 命中 gram ${matchedGrams}/${qg.length} | ${out.elapsed_ms}ms\n`);
   if (out.warning) console.log(`⚠ ${out.warning}\n`);
   if (out.token_warning) console.log(`⚠ ${out.token_warning}\n`);
+  if (autoRefresh) console.log('本次结果基于旧快照，后台正在抓新数据，下次查询就是新的。\n');
   for (const h of hits) {
     console.log(`#${h.rank}  ${h.title}   [${h.type}]  ${h.score}`);
     console.log(`    账号 ${h.account || '-'} · ${h.id}`);
