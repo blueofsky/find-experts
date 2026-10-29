@@ -67,13 +67,13 @@ git clone https://github.com/blueofsky/find-experts.git "$env:USERPROFILE\.workb
 
 ```text
 装一下这个 skill：https://github.com/blueofsky/find-experts
-装到 ~/.workbuddy/skills/find-experts（Windows 是 %USERPROFILE%\.workbuddy\skills\find-experts），层级要正好是 skills/find-experts/SKILL.md。
+装到 ~/.workbuddy/skills/find-experts（Windows 是 %USERPROFILE%\.workbuddy\skills\find-experts）。
 装完跑 node scripts/find.mjs "跨境支付合规" --top 3，能出结果就算装好了。
 第一次跑会停 20 到 60 秒（抓数据建索引），命令超时设长一点，别中途 kill、别重试。
 它要从本机 WorkBuddy 客户端的登录态取凭证，所以客户端得开着并登录着；报凭证错误就把原文贴给我。
 ```
 
-后两句不是客套。少了超时那句，agent 会拿默认的短超时当失败、杀掉进程再重试；少了凭证那句，客户端没登录时它拿到的只是「凭证失效」，帮不上忙。
+路径那句是必要的：只给一个仓库地址，agent 容易 clone 到当前目录，而你可能正待在某个项目里，装那儿不会被加载。层级不用交代——`git clone` 到 `skills/find-experts` 天然就是对的，只有解压 zip 才会多套一层 `find-experts-main`。后面两句也不是客套：短超时会让 agent 把首次建索引当失败、杀进程重试；客户端没登录时它只能看到一句「凭证失效」。
 
 ### 自己验
 
