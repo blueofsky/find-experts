@@ -1,5 +1,5 @@
-# 索引与派生产物，不进版本库（data 全量约 51 MB）
-# 含 index.bin（49 MB）、history.json、meta.json，以及 wb-token.env（登录凭证）
+# 索引与派生产物，不进版本库（data 全量约 60 MB）
+# 含 index.bin（约 57 MB，约 2 MB/千条，随库规模涨）、history.json、meta.json，以及 wb-token.env（登录凭证）
 # 索引可重建：node scripts/update.mjs
 /data/
 
