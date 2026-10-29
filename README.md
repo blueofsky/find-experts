@@ -25,10 +25,10 @@ WorkBuddy 内置的 `search_plugins` 能用，但它返回的信息太少，判�
 
 ```bash
 # macOS / Linux
-git clone https://github.com/<你的账号>/find-experts.git ~/.workbuddy/skills/find-experts
+git clone https://github.com/blueofsky/find-experts.git ~/.workbuddy/skills/find-experts
 
 # Windows PowerShell
-git clone https://github.com/<你的账号>/find-experts.git "$env:USERPROFILE\.workbuddy\skills\find-experts"
+git clone https://github.com/blueofsky/find-experts.git "$env:USERPROFILE\.workbuddy\skills\find-experts"
 ```
 
 没有 git 就下 zip，解压后把整个目录放到 `~/.workbuddy/skills/find-experts`。注意是 **skill 目录本身**放在 skills 下，别多套一层。
@@ -164,8 +164,10 @@ find-experts/
 │   ├── selftest.mjs      8 个回归用例
 │   ├── deploy.mjs        维护者工具：双环境同步，使用不需要
 │   └── pack.mjs          维护者工具：打包，使用不需要
-└── references/           维护者笔记：设计取舍、排障、调参记录，使用不需要
+└── references/           设计取舍、排障、调参记录。只在仓库里，运行不需要
 ```
+
+`references/` 是写给想改这个 skill 的人看的：为什么权重是这套、客户端接口怎么摸出来的、踩过哪些坑。**运行时不读它们**，`SKILL.md` 也一次都没引用，装到 `~/.workbuddy/skills/` 下只有 `SKILL.md`、`LICENSE`、`scripts/` 和 `data/` 四样东西。
 
 ## 非官方
 
