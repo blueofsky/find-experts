@@ -63,12 +63,14 @@ git clone https://github.com/blueofsky/find-experts.git "$env:USERPROFILE\.workb
 
 ### 让 agent 帮你装
 
-把这段直接发给 WorkBuddy，地址不用改：
+把下面整块复制发给 WorkBuddy，地址不用改（右上角有一键复制）：
 
-> 装一下这个 skill：https://github.com/blueofsky/find-experts
-> 装到 `~/.workbuddy/skills/find-experts`（Windows 是 `%USERPROFILE%\.workbuddy\skills\find-experts`），层级要正好是 `skills/find-experts/SKILL.md`。
-> 装完跑 `node scripts/find.mjs "跨境支付合规" --top 3`，能出结果就算装好了。
-> 第一次跑会停 20 到 60 秒，那是在抓数据建索引，不是卡住，别中断它。
+```text
+装一下这个 skill：https://github.com/blueofsky/find-experts
+装到 ~/.workbuddy/skills/find-experts（Windows 是 %USERPROFILE%\.workbuddy\skills\find-experts），层级要正好是 skills/find-experts/SKILL.md。
+装完跑 node scripts/find.mjs "跨境支付合规" --top 3，能出结果就算装好了。
+第一次跑会停 20 到 60 秒，那是在抓数据建索引，不是卡住，别中断它。
+```
 
 最后一句别省。没有它，agent 可能以为进程挂了、反复重试，或者跑一半回来问你。
 
