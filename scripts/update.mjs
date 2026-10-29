@@ -48,6 +48,24 @@ const FROM_FILE = opt('--from-file');
 const REBUILD = has('--rebuild');
 const QUIET = has('--quiet') || has('-q');
 
+// 以前没有 help 分支，也就没有参数校验：敲 --help 或者手滑多打一个字母，
+// 都会被当成「正常刷新」直接抓 20 秒，还会改写索引。未知参数一律停下来。
+const KNOWN = new Set(['--force', '-f', '--from-file', '--rebuild', '--quiet', '-q', '--help', '-h']);
+if (has('--help') || has('-h')) {
+  console.log('用法: node update.mjs [--force] [--rebuild] [--from-file <json>] [--quiet]');
+  console.log('  （无参数）        联网抓全量，约 20~30 秒');
+  console.log('  --force         忽略条数护栏与失败退避（页级失败护栏绕不过）');
+  console.log('  --rebuild       不联网，用现有 index.bin 重算，约 4 秒');
+  console.log('  --from-file <f> 从导出的 JSON 建索引，不联网');
+  console.log('  --quiet         只打结果，不打过程');
+  process.exit(0);
+}
+const unknown = argv.filter((a, i) => !KNOWN.has(a) && !(i > 0 && argv[i - 1] === '--from-file'));
+if (unknown.length) {
+  console.error(`不认识的参数：${unknown.join(' ')}。看用法加 --help`);
+  process.exit(1);
+}
+
 const log = (...a) => { if (!QUIET) console.error(...a); };
 const nowIso = () => new Date().toISOString();
 const localStamp = (d = new Date()) =>

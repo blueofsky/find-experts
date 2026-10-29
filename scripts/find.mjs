@@ -44,7 +44,12 @@ for (let i = 0; i < argv.length; i++) {
     if (a === '--top') opts.top = Math.max(1, Math.min(100, parseInt(v, 10) || 20));
     else if (a === '--cat') opts.cat = v;
     else if (a === '--detail') opts.detail = v;
-    else opts.type = v;
+    // 写错的 type 会让整批筛空，输出「没有召回结果」看着像这个词搜不到，必须当场报错
+    else if (v === 'agent' || v === 'team') opts.type = v;
+    else {
+      console.error(`--type 只接受 agent 或 team，收到「${v}」`);
+      process.exit(1);
+    }
     continue;
   }
   if (a === '--open') {
@@ -168,6 +173,7 @@ const HINT = {
   4: '本次抓取不完整或条数偏差过大，已保留旧索引。条数偏差可以确认后跑 update.mjs --force；'
     + '页抓失败（日志里的 [guard] 抓取不完整）重跑一次即可，--force 也绕不过这条',
   5: '网络或接口失败，脚本已进入 1 小时退避。跑 update.mjs --force 可立即重试',
+  6: '上次更新失败还不到 1 小时，这次刷新被退避跳过，用的仍是现有数据。要立刻重试跑 update.mjs --force',
 };
 // 硬失败：本地没有可用数据，而实时接口同样救不了（凭证失效/网络不通），
 // 或者本地状态得人工处理（并发锁/护栏）。这时降级只是换个地方报同一个错，直接退出。

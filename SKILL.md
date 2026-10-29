@@ -2,7 +2,7 @@
 name: find-experts
 display_name: 找专家
 display_name_en: Expert Finder
-description: 帮用户从 WorkBuddy 专家市场全库里找专家。当用户问「有没有擅长 X 的专家」「这活该找谁」「哪个专家能写/审/算/做 X」「找个懂 X 的人」，或报出专家名要定位（「AI短剧制作那个」）、要分辨同名专家里哪条才对、要看使用量或多久没更新时使用。只做检索和推荐，不替用户切换或安装专家。
+description: 帮用户从 WorkBuddy 专家市场全库里找专家。当用户问「有没有擅长 X 的专家」「这活该找谁」「哪个专家能写/审/算/做 X」「哪个团队能接整件事」「找个懂 X 的人」，或报出专家名要定位（「AI短剧制作那个」）、要分辨同名专家里哪条才对、要看使用量或多久没更新时使用。只做检索和推荐，不替用户切换或安装专家。
 description_zh: 按「要做的事」在 WorkBuddy 专家市场全库里找人，给出专家名、账号、使用量、版本和详情深链，能分辨同名专家。
 description_en: Find the right expert in the WorkBuddy marketplace by what the user wants to get done. Returns expert name, creator account, usage count, version and a detail link, and disambiguates experts sharing the same name.
 category: automation
@@ -13,15 +13,17 @@ examples_zh:
   - "有没有擅长把访谈录音整理成书稿的专家"
   - "AI短剧制作那个专家叫什么，帮我找出来"
   - "搜到好几个同名的小红书专家，哪个用的人最多"
+  - "有没有懂跨境支付合规的专家"
 examples_en:
   - "Is there an expert good at turning interview recordings into a manuscript?"
   - "Find the expert called AI Short Drama Production"
   - "Several experts share the same name. Which one has the most users?"
+  - "Is there an expert who knows cross-border payment compliance?"
 ---
 
 # find-experts
 
-本地索引存着专家市场全量快照（当前约 2.9 万条，准确数看检索输出里的 `total`），每天 04:30 自动更新。日常检索走本地，不联网；只有首次安装和 `--refresh` 才会抓数据。
+本地索引存着专家市场全量快照（当前约 2.9 万条，准确数看检索输出里的 `total`），每天 04:30 自动更新。日常检索走本地，不联网；会联网的只有四种：首次安装、`--refresh`、`--detail` 按 id 查详情、索引损坏时的实时接口兜底。
 
 **先跑脚本再回答。** 市场每天在变，全量里绝大多数你不可能见过，凭记忆报名字一定会错。
 
@@ -33,17 +35,18 @@ node ~/.workbuddy/skills/find-experts/scripts/find.mjs "<用户原话>" --top 20
 
 > **安全边界**：只读你本机的 WorkBuddy 登录态，用来调专家市场的两个查询接口（`market/expert/list`、`market/expert/get-by-ids`，只读语义，与客户端自带面板同一套调用）。token 只在内存里用，**任何输出都不含 token**（含 `--json`）。
 >
-> 客户端把 `accessToken` 存成 AES-GCM 信封，解密密钥只在运行中的客户端进程内存里，Windows 上 `client_auth.py` 会枚举 WorkBuddy 进程读取该密钥——**只读这一个进程，只为解本机登录态，不外传任何内存内容**。Windows 之外的平台还会试 Keychain，以及**临时起一个带调试端口的客户端实例**（独立临时目录、用完即关）让客户端交出自己的密钥；不碰你正在用的那个窗口和配置。解出来的 token 落在本 skill 的 `data/wb-token.env`（权限 600），不写回客户端任何文件。
+> 客户端把 `accessToken` 存成 AES-GCM 信封，解密密钥只在运行中的客户端进程内存里，Windows 上 `client_auth.py` 会枚举 WorkBuddy 进程读取该密钥——**只读这一个进程，只为解本机登录态，不外传任何内存内容**。Windows 之外的平台还会试 Keychain，以及**临时起一个带调试端口的客户端实例**（独立临时目录、用完即关）让客户端交出自己的密钥；后两条路径代码是全的，但**没在真机跑通过**。不碰你正在用的那个窗口和配置。解出来的 token 落在本 skill 的 `data/wb-token.env`（权限 600），不写回客户端任何文件。
 >
 > 落盘只有 `data/` 一个目录（索引 + token），整个删掉不影响使用。**不修改、不删除 skill 目录以外的任何文件。**
 
-## 三种请求
+## 四种请求
 
 | 用户说的 | 怎么做 |
 |---|---|
 | 「有没有擅长 X 的专家」「这活找谁」 | 跑上面的检索，读 `hits` 精排，给真正匹配的那几条 |
 | 报出专家名（「AI短剧制作那个」） | 同一条命令，原话送进去。标题命中权重大，基本能排第一 |
 | 「打开看看」「给我链接」 | 给 `open_url`，让用户自己点 |
+| 「就用这个」「加到会话里」 | 给操作路径：`+` → 专家 → 搜 `title` → 选中。**你加不了**，只能指引 |
 
 多数需求**不需要真的换专家**，当前会话就能做。用户明确说「就要那个专家」时才提召唤。
 
@@ -105,7 +108,7 @@ node ~/.workbuddy/skills/find-experts/scripts/find.mjs --detail ex_i485AEnvscLv 
 **重名很严重，两个方向都有：**
 
 - 同一账号挂多个专家：「福帮手」下 5 个，光看 `account` 分不出谁是谁
-- 不同账号用同一标题：「微信小程序开发者」3 条一字不差，uc 3105271 / 852 / 432
+- 不同账号用同一标题：「微信小程序开发者」3 条一字不差，头尾使用量差几千倍，还夹着两条同账号的。光看名字挑，挑中的概率基本是碰运气
 
 所以报推荐时 `title + account + uc` 三个一起给，重名严重时带 `id`。
 
@@ -223,7 +226,7 @@ JSON 输出里几个字段要先看（降级时没有这些，那时看 `degrade
 
 ```bash
 node ~/.workbuddy/skills/find-experts/scripts/update.mjs            # 正常刷新，约 20~30 秒，联网
-node ~/.workbuddy/skills/find-experts/scripts/update.mjs --force    # 忽略护栏与失败退避
+node ~/.workbuddy/skills/find-experts/scripts/update.mjs --force    # 忽略条数护栏与失败退避（页级失败护栏绕不过）
 node ~/.workbuddy/skills/find-experts/scripts/update.mjs --rebuild  # 不联网，用现有数据重算索引，约 3.5 秒
 node ~/.workbuddy/skills/find-experts/scripts/selftest.mjs          # 回归：8 个用例，打印 Top1 / Recall@5 / Recall@10（基线 7/8、8/8、8/8，脚本只打印不判定）
 ```
